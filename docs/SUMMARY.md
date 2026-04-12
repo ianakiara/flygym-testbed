@@ -31,3 +31,13 @@
         * [utils](api_reference/flygym/warp/utils.md)
 * [NeuroMechFly Live & Outreach](outreach.md)
 * [Citing NeuroMechFly](citation.md)
+* Research Extensions
+    * [Repo truth audit](repo_truth_audit.md)
+    * [Weights and configs inventory](weights_configs_inventory.md)
+    * [Current capabilities matrix](current_capabilities_matrix.md)
+    * [FlyGym extension points](flygym_extension_points.md)
+    * [Control stack map](control_stack_map.md)
+    * [Three-layer architecture](architecture_three_layer.md)
+    * [Reduced descending interface](reduced_descending_interface.md)
+    * [Ascending feedback spec](ascending_feedback_spec.md)
+    * [World modes spec](world_modes_spec.md)
