@@ -1,0 +1,11 @@
+pair,reward_corr_E1,reward_corr_E2,reward_divergence,translation_r2_E1,translation_r2_E2,translation_divergence
+memory vs planner,0.779,0.742,0.037,0.845,0.853,0.009
+memory vs raw_control,0.779,0.753,0.026,0.883,0.898,0.015
+memory vs reduced_descending,0.999,0.976,0.022,0.997,0.99,0.007
+memory vs reflex_only,0.779,0.753,0.026,0.867,0.883,0.015
+planner vs raw_control,0.502,0.39,0.112,0.902,0.925,0.023
+planner vs reduced_descending,0.76,0.723,0.037,0.779,0.862,0.084
+planner vs reflex_only,0.502,0.39,0.112,0.891,0.912,0.02
+raw_control vs reduced_descending,0.786,0.656,0.131,0.605,0.71,0.105
+raw_control vs reflex_only,1.0,1.0,0.0,1.0,1.0,0.0
+reduced_descending vs reflex_only,0.786,0.656,0.131,0.847,0.861,0.014

@@ -1,0 +1,15 @@
+check
+  reflex_only: OK (10 steps)
+  random: OK (10 steps)
+  reduced_descending: OK (10 steps)
+  no_ascending: OK (10 steps)
+  raw_control: OK (10 steps)
+  memory: OK (10 steps)
+  planner: OK (10 steps)
+  bodyless: OK (10 steps)
+  Determinism: PASS (same seed → same rewards)
+  NaN check: PASS (target_distance NaN allowed by design)
+  World simplified: OK
+  World avatar: OK
+  World native: OK
+  Shape consistency: PASS

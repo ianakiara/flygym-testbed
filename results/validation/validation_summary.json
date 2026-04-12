@@ -1,0 +1,123 @@
+{
+  "total_stages": 11,
+  "passed": 10,
+  "failed": 1,
+  "stages": {
+    "Stage 1: Sanity": {
+      "passed": true,
+      "status": "pass",
+      "details": {
+        "checks_passed": 20,
+        "checks_total": 20
+      }
+    },
+    "Stage 2: Baseline Truth": {
+      "passed": "True",
+      "status": "pass",
+      "details": {
+        "reduced_mean": 9.20053240001126,
+        "reflex_mean": -121.98812932422271,
+        "gap": 131.18866172423398
+      }
+    },
+    "Stage 3: Body Substrate": {
+      "passed": false,
+      "status": "blocked",
+      "details": {
+        "wins_by_world": {
+          "simplified/reduced_descending": 0,
+          "simplified/raw_control": 0,
+          "avatar/reduced_descending": 0,
+          "avatar/raw_control": 1
+        },
+        "worlds_with_3plus": 0
+      }
+    },
+    "Stage 4: Ascending Loop": {
+      "passed": true,
+      "status": "strong_pass",
+      "details": {
+        "significant_drops": [
+          "no_pose",
+          "all_off"
+        ]
+      }
+    },
+    "Stage 5: History Dependence": {
+      "passed": true,
+      "status": "pass",
+      "details": {
+        "memory_hist": 0.8177775467307485,
+        "random_hist": 0.03347612548317449,
+        "gap": 0.7843014212475741
+      }
+    },
+    "Stage 6: Self/World": {
+      "passed": true,
+      "status": "pass",
+      "details": {
+        "rd_sw": -0.06064079786525876,
+        "mem_sw": -0.07685434882274192,
+        "baseline_max": 0.06064079786525876
+      }
+    },
+    "Stage 7: Interoperability": {
+      "passed": true,
+      "status": "pass",
+      "details": {
+        "mean_raw": 0.4934098572452152,
+        "mean_trans": 0.8877799320767561,
+        "gap": 0.3943700748315409
+      }
+    },
+    "Stage 7b: Quotient Operator": {
+      "passed": true,
+      "status": "pass",
+      "details": {
+        "degeneracy_ratio": 0.2567726288786696,
+        "information_loss": 0.48463960743185297,
+        "invariant_fraction": 0.8461538461538461,
+        "n_invariant_dims": 11,
+        "n_destroyed_dims": 1,
+        "equivalence_classes": 3,
+        "mean_class_size": 1.6666666666666667,
+        "valid_translations": 10,
+        "total_pairs": 10,
+        "mean_preservation_r2": 0.8933518351183096,
+        "counterfactual_divergent_pairs": 0,
+        "mean_reward_divergence": 0.0634,
+        "mean_translation_divergence": 0.029200000000000004
+      }
+    },
+    "Stage 8: Seam Stress": {
+      "passed": true,
+      "status": "pass",
+      "details": {
+        "seam_predicts_failure": true
+      }
+    },
+    "Stage 9: Shared Objectness": {
+      "passed": "True",
+      "status": "pass",
+      "details": {
+        "mean_normal_shared": 0.5858258553917228,
+        "mean_stressed_shared": 0.897932526724884,
+        "shared_drop": -0.31210667133316117,
+        "mean_normal_internal": 0.65625,
+        "mean_stressed_internal": 0.48412698412698413,
+        "internal_drop": 0.17212301587301587
+      }
+    },
+    "Stage 10: Transfer": {
+      "passed": true,
+      "status": "pass",
+      "details": {
+        "surviving_findings": [
+          "stability",
+          "persistence",
+          "history"
+        ]
+      }
+    }
+  }
+}

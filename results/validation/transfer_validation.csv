@@ -1,0 +1,5 @@
+finding,survives_transfer,simplified_value,avatar_value,native_value
+stability,True,1.0,1.0,1.0
+persistence,True,1.0,1.0,1.0
+history,True,0.9986417275742665,0.7449406631144282,1.0
+self_world,False,0.0,-0.06064079786525876,0.0

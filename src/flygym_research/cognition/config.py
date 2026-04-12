@@ -1,0 +1,42 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+
+@dataclass(slots=True)
+class BodyLayerConfig:
+    timestep: float = 1e-4
+    warmup_duration_s: float = 0.01
+    phase_increment: float = 0.35
+    gait_amplitude: float = 0.2
+    turn_gain: float = 0.15
+    stabilization_gain: float = 0.1
+    adhesion_on: float = 1.0
+    adhesion_off: float = 0.0
+    kp: float = 45.0
+    force_range: tuple[float, float] = (-30.0, 30.0)
+    disabled_feedback_channels: frozenset[str] = field(default_factory=frozenset)
+    bodyless_position_scale: float = 0.1
+    normal_force_epsilon: float = 1e-6
+    # Descending adapter swing-term weights per joint link.
+    coxa_swing_scale: float = 0.12
+    trochanterfemur_swing_scale: float = 1.0
+    tibia_swing_scale: float = 0.7
+    tarsus_swing_scale: float = 0.25
+
+
+@dataclass(slots=True)
+class EnvConfig:
+    episode_steps: int = 64
+    history_length: int = 8
+    success_radius_mm: float = 1.0
+    avatar_step_scale: float = 0.35
+    avatar_turn_scale: float = 0.4
+    avatar_noise_scale: float = 0.02
+    avatar_min_stability_scale: float = 0.25
+    avatar_stability_gain: float = 0.75
+    avatar_external_event_period: int = 7
+    avatar_success_radius: float = 0.2
+    # SimplifiedEmbodiedWorld target placement bounds (mm from spawn).
+    target_min_distance: float = 2.0
+    target_max_distance: float = 4.0
