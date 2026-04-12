@@ -61,7 +61,7 @@ class FlyBodyWorldEnv:
             {
                 "reward": float(world_state.reward),
                 "stability": float(summary.features.get("stability", 0.0)),
-                "mode": float(world_state.step_count),
+                "step_count": float(world_state.step_count),
             }
         )
         observation = BrainObservation(

@@ -28,3 +28,4 @@ class EnvConfig:
     avatar_noise_scale: float = 0.02
     avatar_min_stability_scale: float = 0.25
     avatar_stability_gain: float = 0.75
+    avatar_external_event_period: int = 7

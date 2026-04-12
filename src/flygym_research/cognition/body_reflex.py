@@ -65,7 +65,11 @@ class FlyBodyLayer(BodyInterface):
             [neutral_lookup[jointdof] for jointdof in self.actuator_order],
             dtype=np.float64,
         )
-        thorax_index = [seg.name for seg in fly.get_bodysegs_order()].index("c_thorax")
+        thorax_index = next(
+            i
+            for i, seg in enumerate(fly.get_bodysegs_order())
+            if seg.name == "c_thorax"
+        )
         self.descending_adapter = DescendingAdapter(
             actuator_order=list(self.actuator_order),
             thorax_index=thorax_index,

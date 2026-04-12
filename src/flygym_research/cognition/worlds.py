@@ -187,7 +187,9 @@ class AvatarRemappedWorld(WorldInterface):
             [np.cos(self._heading), np.sin(self._heading)], dtype=np.float64
         )
         self._avatar_xy += forward * command.move_intent * step_scale
-        external_event = self._step_count % 7 == 0
+        external_event = (
+            self._step_count % self.config.avatar_external_event_period == 0
+        )
         if external_event:
             self._avatar_xy += self._rng.normal(
                 0.0, self.config.avatar_noise_scale, size=2

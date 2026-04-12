@@ -9,6 +9,9 @@ from flygym.anatomy import JointDOF
 from ..config import BodyLayerConfig
 from ..interfaces import AdapterOutput, DescendingCommand, RawBodyFeedback
 
+# Alternating tripod groups using FlyGym leg identifiers:
+# left-front/right-middle/left-hind and right-front/left-middle/right-hind.
+# This preserves the standard insect alternating-tripod gait pattern in a compact form.
 TRIPOD_A = {"lf", "rm", "lh"}
 TRIPOD_B = {"rf", "lm", "rh"}
 

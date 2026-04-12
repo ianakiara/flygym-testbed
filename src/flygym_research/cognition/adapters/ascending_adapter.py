@@ -50,6 +50,8 @@ class AscendingAdapter:
         contact_fraction = float(np.mean(raw_feedback.contact_active > 0.5))
         tangential_force = np.linalg.norm(raw_feedback.contact_forces[:, :2], axis=1)
         normal_force = np.abs(raw_feedback.contact_forces[:, 2]) + 1e-6
+        # Tangential/normal load approximates slip tendency while the epsilon avoids
+        # divide-by-zero when contacts are absent or numerically tiny.
         slip_risk = float(np.mean(tangential_force / normal_force))
         collision_load = float(
             np.mean(np.linalg.norm(raw_feedback.contact_forces, axis=1))

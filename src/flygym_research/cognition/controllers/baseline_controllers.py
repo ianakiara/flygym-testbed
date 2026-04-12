@@ -122,4 +122,6 @@ class RawControlController(BrainInterface):
 
 @dataclass(slots=True)
 class BodylessAvatarController(ReducedDescendingController):
+    """Alias for reduced descending control in bodyless avatar-only ablations."""
+
     pass
