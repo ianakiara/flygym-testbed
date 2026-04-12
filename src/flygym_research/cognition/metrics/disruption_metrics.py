@@ -73,9 +73,11 @@ def global_disruption_signature(
     disrupted = compute_metric_vector(disrupted_transitions)
 
     abs_change = disrupted - baseline
-    # Relative change (avoid division by zero).
+    # Relative change — use safe denominator to avoid RuntimeWarning from
+    # numpy evaluating the division for all elements before masking.
+    safe_baseline = np.where(np.abs(baseline) > 1e-8, np.abs(baseline), 1.0)
     rel_change = np.where(
-        np.abs(baseline) > 1e-8, abs_change / np.abs(baseline), 0.0
+        np.abs(baseline) > 1e-8, abs_change / safe_baseline, 0.0
     )
 
     degradation_threshold = -0.1  # >10% relative degradation.

@@ -674,3 +674,105 @@ class TestValidationSuite:
         suite.check_beats_baseline(t1, t2)
         md = suite.to_markdown()
         assert "Validation Results" in md
+
+
+# ─── Causal intervention metrics ─────────────────────────────────────
+
+
+class TestCausalMetrics:
+    def test_causal_influence_score(self):
+        from flygym_research.cognition.metrics.causal_metrics import causal_influence_score
+
+        baseline = _make_transitions(15)
+        # Use different seed to produce divergent trajectory.
+        env2 = FlyAvatarEnv(body=BodylessBodyLayer())
+        ctrl2 = MemoryController()
+        intervened = run_episode(env2, ctrl2, seed=99, max_steps=15)
+
+        result = causal_influence_score(baseline, intervened, intervention_magnitude=0.5)
+        assert "causal_influence" in result
+        assert 0.0 <= result["causal_influence"] <= 1.0
+        assert result["action_divergence"] >= 0.0
+        assert result["trajectory_divergence"] >= 0.0
+
+    def test_causal_influence_empty(self):
+        from flygym_research.cognition.metrics.causal_metrics import causal_influence_score
+
+        result = causal_influence_score([], [], intervention_magnitude=1.0)
+        assert result["causal_influence"] == 0.0
+
+    def test_epiphenomenal_test(self):
+        from flygym_research.cognition.metrics.causal_metrics import epiphenomenal_test
+
+        baseline = _make_transitions(15)
+        result = epiphenomenal_test(baseline, baseline)
+        assert "epiphenomenal_score" in result
+        # Identical trajectories → state is "epiphenomenal" (unchanged).
+        assert result["epiphenomenal_score"] == 1.0
+
+    def test_temporal_causal_depth(self):
+        from flygym_research.cognition.metrics.causal_metrics import temporal_causal_depth
+
+        transitions = _make_transitions(25)
+        result = temporal_causal_depth(transitions, max_horizon=5)
+        assert "causal_depth" in result
+        assert "causal_depth_score" in result
+        assert 0.0 <= result["causal_depth_score"] <= 1.0
+
+    def test_temporal_causal_depth_short(self):
+        from flygym_research.cognition.metrics.causal_metrics import temporal_causal_depth
+
+        result = temporal_causal_depth([], max_horizon=5)
+        assert result["causal_depth"] == 0.0
+
+
+# ─── Causal intervention experiment ──────────────────────────────────
+
+
+class TestCausalInterventionExperiment:
+    def test_run_experiment(self, tmp_path):
+        from flygym_research.cognition.experiments.exp_causal_intervention import run_experiment
+
+        result = run_experiment(tmp_path / "causal")
+        assert "summary" in result
+        summary = result["summary"]
+        assert "mean_causal_influence" in summary
+        assert "mean_epiphenomenal_score" in summary
+        assert "mean_causal_depth" in summary
+        assert (tmp_path / "causal" / "causal_intervention_results.json").exists()
+
+
+# ─── Claims ledger round-trip ─────────────────────────────────────────
+
+
+class TestClaimsLedgerRoundTrip:
+    def test_from_json_preserves_promoted_from(self):
+        ledger = ClaimsLedger()
+        claim = ledger.register(
+            text="Candidate prerequisite: persistent state exists",
+            tier=ClaimTier.USEFUL,
+            experiment="test",
+            evidence=["data"],
+        )
+        # Promote the claim.
+        ledger.promote(claim.claim_id, ClaimTier.STRONG)
+        json_str = ledger.to_json()
+
+        restored = ClaimsLedger.from_json(json_str)
+        restored_claim = restored.get(claim.claim_id)
+        assert restored_claim is not None
+        assert restored_claim.tier == ClaimTier.STRONG
+        assert restored_claim.promoted_from == ClaimTier.USEFUL
+
+    def test_save_and_load(self, tmp_path):
+        ledger = ClaimsLedger()
+        ledger.register(
+            text="Candidate prerequisite: test claim",
+            tier=ClaimTier.USEFUL,
+            experiment="exp",
+            evidence=["ev1"],
+        )
+        ledger.save(tmp_path / "ledger")
+        loaded = ClaimsLedger.load(tmp_path / "ledger")
+        assert len(loaded.claims) == 1
+        assert loaded.claims[0].text == "Candidate prerequisite: test claim"

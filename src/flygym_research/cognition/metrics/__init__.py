@@ -7,6 +7,11 @@ from .core_metrics import (
     summarize_metrics,
     task_performance,
 )
+from .causal_metrics import (
+    causal_influence_score,
+    epiphenomenal_test,
+    temporal_causal_depth,
+)
 from .disruption_metrics import (
     compute_metric_vector,
     global_disruption_signature,
@@ -106,4 +111,7 @@ __all__ = [
     "seam_critical_exception_score",
     "sleep_validation_vector",
     "trajectory_equivalence_strength",
+    "causal_influence_score",
+    "epiphenomenal_test",
+    "temporal_causal_depth",
 ]
