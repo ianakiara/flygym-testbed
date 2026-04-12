@@ -179,7 +179,10 @@ class AvatarRemappedWorld(WorldInterface):
         self._step_count += 1
         stability = summary.features.get("stability", 0.0)
         self._heading += command.turn_intent * self.config.avatar_turn_scale
-        step_scale = self.config.avatar_step_scale * (0.25 + 0.75 * max(stability, 0.0))
+        step_scale = self.config.avatar_step_scale * (
+            self.config.avatar_min_stability_scale
+            + self.config.avatar_stability_gain * max(stability, 0.0)
+        )
         forward = np.array(
             [np.cos(self._heading), np.sin(self._heading)], dtype=np.float64
         )

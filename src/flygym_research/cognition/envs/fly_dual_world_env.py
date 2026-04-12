@@ -22,14 +22,20 @@ class FlyDualWorldEnv(FlyBodyWorldEnv):
         config: EnvConfig | None = None,
     ) -> None:
         if default_mode not in worlds:
-            raise ValueError(f"Unknown default mode: {default_mode}")
+            raise ValueError(
+                f"Unknown default mode '{default_mode}'. "
+                f"Available modes: {list(worlds.keys())}"
+            )
         self.worlds = worlds
         self.mode = default_mode
         super().__init__(body=body, world=worlds[default_mode], config=config)
 
     def set_mode(self, mode: str) -> None:
         if mode not in self.worlds:
-            raise ValueError(f"Unknown world mode: {mode}")
+            raise ValueError(
+                f"Unknown world mode '{mode}'. "
+                f"Available modes: {list(self.worlds.keys())}"
+            )
         self.mode = mode
         self.world = self.worlds[mode]
 

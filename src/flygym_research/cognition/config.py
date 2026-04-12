@@ -26,3 +26,5 @@ class EnvConfig:
     avatar_step_scale: float = 0.35
     avatar_turn_scale: float = 0.4
     avatar_noise_scale: float = 0.02
+    avatar_min_stability_scale: float = 0.25
+    avatar_stability_gain: float = 0.75

@@ -21,9 +21,11 @@ class AscendingAdapter:
     thorax_index: int
     config: BodyLayerConfig
     _prev_thorax_position: np.ndarray | None = field(default=None, init=False)
+    _prev_time: float | None = field(default=None, init=False)
 
     def reset(self) -> None:
         self._prev_thorax_position = None
+        self._prev_time = None
 
     def summarize(
         self,
@@ -34,14 +36,15 @@ class AscendingAdapter:
     ) -> AscendingSummary:
         thorax_position = raw_feedback.body_positions[self.thorax_index]
         thorax_quat = raw_feedback.body_rotations[self.thorax_index]
-        if self._prev_thorax_position is None:
+        if self._prev_thorax_position is None or self._prev_time is None:
             speed = 0.0
         else:
-            dt = max(raw_feedback.time, 1e-6)
+            dt = max(raw_feedback.time - self._prev_time, 1e-6)
             speed = float(
                 np.linalg.norm(thorax_position - self._prev_thorax_position) / dt
             )
         self._prev_thorax_position = thorax_position.copy()
+        self._prev_time = raw_feedback.time
 
         orientation_error = float(np.linalg.norm(thorax_quat[1:3]))
         contact_fraction = float(np.mean(raw_feedback.contact_active > 0.5))

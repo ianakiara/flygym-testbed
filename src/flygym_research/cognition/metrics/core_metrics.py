@@ -46,7 +46,12 @@ def state_persistence(
     )
     if len(values) < 2:
         return {"state_autocorrelation": 0.0}
-    return {"state_autocorrelation": float(np.corrcoef(values[:-1], values[1:])[0, 1])}
+    left = values[:-1]
+    right = values[1:]
+    if np.allclose(left, left[0]) or np.allclose(right, right[0]):
+        return {"state_autocorrelation": 0.0}
+    corr = float(np.corrcoef(left, right)[0, 1])
+    return {"state_autocorrelation": 0.0 if np.isnan(corr) else corr}
 
 
 def history_dependence(transitions: list[StepTransition]) -> dict[str, float]:
@@ -84,7 +89,10 @@ def self_world_separation(transitions: list[StepTransition]) -> dict[str, float]
     )
     if len(external) < 2 or np.all(external == external[0]):
         return {"self_world_marker": 0.0}
-    return {"self_world_marker": float(np.corrcoef(external, speed)[0, 1])}
+    if np.allclose(speed, speed[0]):
+        return {"self_world_marker": 0.0}
+    corr = float(np.corrcoef(external, speed)[0, 1])
+    return {"self_world_marker": 0.0 if np.isnan(corr) else corr}
 
 
 def seam_fragility(transitions: list[StepTransition]) -> dict[str, float]:
