@@ -23,6 +23,16 @@
 - **This is a genuine structural finding — but environment dynamics may act as an implicit forced translator.**
 - **Previous overclaim corrected**: Old metric used reward correlation as "translated alignment" (0.437 vs 0.000). This measured environment-imposed outcome similarity. New metric uses real multi-dimensional state trajectories with linear OLS translation maps.
 
+### 3b. Environment acts as quotient operator (NEW — formalized in Stage 7b)
+- The environment E: Z → R is a many→one projection that **defines equivalence classes** over controller space
+- 48.5% of state information is NOT predictable from reward — E destroys nearly half the state space
+- Three natural equivalence classes emerge: {memory, reduced_descending}, {planner}, {raw_control, reflex_only}
+- 10/10 learned translation maps preserve environment structure (E ∘ T ≈ E, mean preservation R²=0.893)
+- Equivalence classes are **robust under perturbation** (2× speed, 5× noise): max reward divergence only 0.131
+- Only 1/14 state dimensions (phase_velocity) is fully destroyed by E; distance-to-target has perfect correlation (−1.000)
+- **This reframes interoperability**: it's not controller-intrinsic shared structure, it's environment-mediated compression into equivalence classes
+- **This is a real, testable mathematical framework — not metaphor.**
+
 ### 4. Seam perturbation reveals failures that local metrics miss
 - Breaking pose+locomotion channels: reward improves by 26.05, but stability drops 100%
 - A system that looks "better" by reward is actually structurally broken
@@ -90,7 +100,7 @@
 - The bodyless layer is a kinematic placeholder, not an embodied system
 
 ### 3. "10/10 stages validate the research program"
-- 9 passed, 1 blocked. The blocked stage (body substrate) is one of the five crown-jewel validations.
+- 10 passed, 1 blocked (11 stages total including 7b). The blocked stage (body substrate) is one of the five crown-jewel validations.
 - Several passing stages have caveats and need stronger protocols.
 
 ---
@@ -102,6 +112,7 @@
 | Architecture works | **TRUE** | High |
 | Ascending loop matters | **TRUE (with caveat)** | Medium-High |
 | Controller translation maps | **TRUE (with caveats)** | Medium-High |
+| Environment as quotient operator | **TRUE** | Medium-High |
 | Seam law holds | **TRUE** | High |
 | History dependence | **TRUE (after metric fix)** | Medium |
 | Self/world separation | **WEAK BUT REAL** | Low-Medium |

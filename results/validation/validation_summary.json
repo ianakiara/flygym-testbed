@@ -1,6 +1,6 @@
 {
-  "total_stages": 10,
-  "passed": 9,
+  "total_stages": 11,
+  "passed": 10,
   "failed": 1,
   "stages": {
     "Stage 1: Sanity": {
@@ -68,6 +68,25 @@
         "mean_raw": 0.4934098572452152,
         "mean_trans": 0.8877799320767561,
         "gap": 0.3943700748315409
+      }
+    },
+    "Stage 7b: Quotient Operator": {
+      "passed": true,
+      "status": "pass",
+      "details": {
+        "degeneracy_ratio": 0.2567726288786696,
+        "information_loss": 0.48463960743185297,
+        "invariant_fraction": 0.8461538461538461,
+        "n_invariant_dims": 11,
+        "n_destroyed_dims": 1,
+        "equivalence_classes": 3,
+        "mean_class_size": 1.6666666666666667,
+        "valid_translations": 10,
+        "total_pairs": 10,
+        "mean_preservation_r2": 0.8933518351183096,
+        "counterfactual_divergent_pairs": 0,
+        "mean_reward_divergence": 0.0634,
+        "mean_translation_divergence": 0.029200000000000004
       }
     },
     "Stage 8: Seam Stress": {

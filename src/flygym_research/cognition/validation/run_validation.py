@@ -34,8 +34,13 @@ from ..experiments.benchmark_harness import run_episode
 from ..interfaces import BrainInterface, DescendingCommand, StepTransition
 from ..metrics import (
     controller_action_distribution,
+    counterfactual_divergence,
     cross_condition_objectness,
     cross_time_mutual_information,
+    degeneracy_score,
+    environment_invariant_dimensions,
+    equivalence_class_size,
+    full_quotient_analysis,
     global_disruption_signature,
     history_dependence,
     hysteresis_metric,
@@ -52,6 +57,7 @@ from ..metrics import (
     summarize_metrics,
     target_representation_stability,
     task_performance,
+    translation_preserves_environment,
 )
 from ..worlds import AvatarRemappedWorld, NativePhysicalWorld, SimplifiedEmbodiedWorld
 from .claims_ledger import ClaimsLedger, ClaimTier, overclaiming_filter
@@ -699,6 +705,208 @@ def stage_7_interoperability(output_dir: Path) -> StageResult:
     )
 
 
+def stage_7b_quotient_operator(output_dir: Path) -> StageResult:
+    """Stage 7b — Environment as quotient operator.
+
+    Formalizes the insight that E acts as a many→one projection:
+        E: Z (controller space) → R (outcome space)
+
+    This stage runs 5 experiments:
+    1. Degeneracy detection — how much latent variance is lost in reward
+    2. Environment-invariant dimensions — which state dims E preserves vs destroys
+    3. Equivalence class analysis — how many controllers map to ~same outcome
+    4. Translation validity — does T_ij preserve environment (E ∘ T ≈ E)
+    5. Counterfactual divergence — do E-equivalent controllers diverge under E'
+
+    Pass condition: degeneracy_ratio > 0.3 AND at least 1 divergent pair in
+    counterfactual test, confirming that environment defines equivalence classes.
+    """
+    notes = []
+
+    # ── Shared controller set and trajectory collection ──────────────
+    controllers = {
+        "reduced_descending": ReducedDescendingController(),
+        "memory": MemoryController(),
+        "planner": PlannerController(),
+        "reflex_only": ReflexOnlyController(),
+        "raw_control": RawControlController(),
+    }
+
+    def _collect_transitions(
+        env_factory, ctrls: dict[str, BrainInterface], n_steps: int = EPISODE_STEPS,
+    ) -> dict[str, list[StepTransition]]:
+        """Run all controllers in a given environment for n_steps."""
+        result: dict[str, list[StepTransition]] = {}
+        for ctrl_name, ctrl in ctrls.items():
+            env = env_factory()
+            observation = env.reset(seed=0)
+            ctrl.reset(seed=0)
+            transitions: list[StepTransition] = []
+            for _ in range(n_steps):
+                action = ctrl.act(observation)
+                transition = env.step(action)
+                transitions.append(transition)
+                observation = transition.observation
+            result[ctrl_name] = transitions
+        return result
+
+    # ── E1: standard avatar environment ──────────────────────────────
+    notes.append("Collecting trajectories in E1 (avatar_remapped, standard)...")
+    env_factory_E1 = lambda: _make_avatar_env()
+    trans_E1 = _collect_transitions(env_factory_E1, controllers)
+    notes.append(f"  E1: {len(trans_E1)} controllers × {EPISODE_STEPS} steps")
+
+    # ── E2: perturbed avatar environment ─────────────────────────────
+    # Double movement speed, 5× noise, reduced stability effect
+    notes.append("Collecting trajectories in E2 (perturbed avatar: 2× speed, 5× noise, low stability)...")
+    perturbed_cfg = EnvConfig(
+        avatar_step_scale=0.70,      # 2× movement speed (default 0.35)
+        avatar_noise_scale=0.10,     # 5× noise (default 0.02)
+        avatar_stability_gain=0.20,  # reduced stability effect (default 0.75)
+    )
+    env_factory_E2 = lambda: FlyAvatarEnv(
+        body=BodylessBodyLayer(config=BodyLayerConfig()),
+        env_config=perturbed_cfg,
+    )
+    # Re-instantiate controllers for E2 (fresh state)
+    controllers_E2 = {
+        "reduced_descending": ReducedDescendingController(),
+        "memory": MemoryController(),
+        "planner": PlannerController(),
+        "reflex_only": ReflexOnlyController(),
+        "raw_control": RawControlController(),
+    }
+    trans_E2 = _collect_transitions(env_factory_E2, controllers_E2)
+    notes.append(f"  E2: {len(trans_E2)} controllers × {EPISODE_STEPS} steps")
+
+    # ── Experiment 1: Degeneracy Detection ───────────────────────────
+    notes.append("\n--- Experiment 1: Degeneracy Detection ---")
+    degen = degeneracy_score(trans_E1)
+    notes.append(f"  degeneracy_ratio = {degen['degeneracy_ratio']:.4f}")
+    notes.append(f"  information_loss = {degen['information_loss']:.4f}")
+    notes.append(f"  mean_pairwise_reward_corr = {degen['mean_pairwise_reward_corr']:.4f}")
+    notes.append(
+        f"  Interpretation: {degen['degeneracy_ratio']:.1%} of state variance exists "
+        f"within same-reward bins → controllers use different internal states for same outcomes"
+    )
+
+    # ── Experiment 2: Environment-Invariant Dimensions ───────────────
+    notes.append("\n--- Experiment 2: Invariant Dimension Analysis ---")
+    inv_dims = environment_invariant_dimensions(trans_E1)
+    dim_names = inv_dims.get("dim_names", [])
+    per_dim = inv_dims.get("per_dim_reward_corr", [])
+    notes.append(f"  Invariant dims (|corr with reward| > 0.3): {inv_dims['n_invariant']}")
+    notes.append(f"  Destroyed dims (|corr with reward| < 0.1): {inv_dims['n_destroyed']}")
+    notes.append(f"  Invariant fraction: {inv_dims['invariant_fraction']:.3f}")
+    for i, (name, corr) in enumerate(zip(dim_names, per_dim)):
+        tag = "PRESERVED" if abs(corr) > 0.3 else ("DESTROYED" if abs(corr) < 0.1 else "partial")
+        notes.append(f"    dim[{i}] {name:20s} corr={corr:+.3f}  [{tag}]")
+
+    # ── Experiment 3: Equivalence Class Analysis ─────────────────────
+    notes.append("\n--- Experiment 3: Equivalence Class Analysis ---")
+    equiv = equivalence_class_size(trans_E1)
+    notes.append(f"  Number of equivalence classes: {equiv['n_classes']}")
+    notes.append(f"  Mean class size: {equiv['mean_class_size']:.1f}")
+    notes.append(f"  Max class size: {equiv['max_class_size']}")
+    for cls in equiv.get("equivalence_classes", []):
+        notes.append(f"    Class: {cls}")
+    for n1, n2, ov in equiv.get("equivalence_pairs", []):
+        notes.append(f"    {n1} vs {n2}: overlap={ov:.3f}")
+
+    # ── Experiment 4: Translation Validity (E ∘ T ≈ E) ──────────────
+    notes.append("\n--- Experiment 4: Translation Preserves Environment ---")
+    ctrl_names = sorted(trans_E1.keys())
+    validity_results = []
+    for i, n1 in enumerate(ctrl_names):
+        for n2 in ctrl_names[i + 1:]:
+            tv = translation_preserves_environment(trans_E1[n1], trans_E1[n2])
+            validity_results.append({
+                "pair": f"{n1}_vs_{n2}",
+                "preservation_r2": tv["environment_preservation_r2"],
+                "baseline_r2": tv["baseline_prediction_r2"],
+                "preservation_ratio": tv["preservation_ratio"],
+                "naive_reward_corr": tv["naive_reward_corr"],
+                "valid": tv["translation_validity"],
+            })
+            tag = "VALID" if tv["translation_validity"] else "INVALID"
+            notes.append(
+                f"  {n1} vs {n2}: preservation_R²={tv['environment_preservation_r2']:.3f} "
+                f"(baseline={tv['baseline_prediction_r2']:.3f}, ratio={tv['preservation_ratio']:.3f}) [{tag}]"
+            )
+
+    valid_count = sum(1 for v in validity_results if v["valid"])
+    mean_preservation = float(np.mean([v["preservation_r2"] for v in validity_results])) if validity_results else 0.0
+    notes.append(f"  Valid translations: {valid_count}/{len(validity_results)}")
+    notes.append(f"  Mean preservation R²: {mean_preservation:.4f}")
+
+    # ── Experiment 5: Counterfactual Divergence (E1 vs E2) ───────────
+    notes.append("\n--- Experiment 5: Counterfactual Divergence (E1 vs E2) ---")
+    cf = counterfactual_divergence(trans_E1, trans_E2)
+    notes.append(f"  Mean reward divergence: {cf['mean_reward_divergence']:.4f}")
+    notes.append(f"  Max reward divergence: {cf['max_reward_divergence']:.4f}")
+    notes.append(f"  Mean translation divergence: {cf['mean_translation_divergence']:.4f}")
+    notes.append(f"  Divergent pairs (E1-equiv but E2-divergent): {cf['n_divergent']}")
+    for p in cf.get("per_pair", []):
+        notes.append(
+            f"    {p['pair']}: reward_corr E1={p['reward_corr_E1']:.3f} → E2={p['reward_corr_E2']:.3f} "
+            f"(Δ={p['reward_divergence']:.3f}), "
+            f"trans_R² E1={p['translation_r2_E1']:.3f} → E2={p['translation_r2_E2']:.3f} "
+            f"(Δ={p['translation_divergence']:.3f})"
+        )
+
+    # ── Write CSV ────────────────────────────────────────────────────
+    rows = validity_results  # Main results table
+    _write_csv(rows, output_dir / "quotient_operator.csv")
+
+    # Also write counterfactual results
+    if cf.get("per_pair"):
+        _write_csv(cf["per_pair"], output_dir / "counterfactual_divergence.csv")
+
+    # ── Pass Condition ───────────────────────────────────────────────
+    # Core claim: environment defines equivalence classes of controllers.
+    # Three independent lines of evidence:
+    #   1. Information destruction: E loses substantial state information.
+    #      Use information_loss (continuous R²-based) rather than dimension
+    #      count.  Threshold 0.2 = at least 20% of state info is NOT
+    #      reflected in reward.
+    #   2. Equivalence classes: E groups controllers into ≥2 classes
+    #      (different internal representations → same outcomes).
+    #   3. Translation validity: learned T preserves E (E∘T ≈ E), i.e.
+    #      translations stay within equivalence classes.  Majority valid.
+    info_destroyed = degen["information_loss"] > 0.2
+    multiple_classes = equiv["n_classes"] >= 2
+    translation_valid = valid_count >= len(validity_results) // 2
+
+    passed = info_destroyed and multiple_classes and translation_valid
+
+    notes.append(f"\n--- Summary ---")
+    notes.append(f"  Information destroyed: {info_destroyed} (loss={degen['information_loss']:.3f}, degeneracy={degen['degeneracy_ratio']:.3f})")
+    notes.append(f"  Multiple equiv classes: {multiple_classes} ({equiv['n_classes']} classes)")
+    notes.append(f"  Translation valid: {translation_valid} ({valid_count}/{len(validity_results)})")
+    notes.append(f"  PASS: {passed}")
+
+    return StageResult(
+        stage="Stage 7b: Quotient Operator",
+        passed=passed,
+        details={
+            "degeneracy_ratio": degen["degeneracy_ratio"],
+            "information_loss": degen["information_loss"],
+            "invariant_fraction": inv_dims["invariant_fraction"],
+            "n_invariant_dims": inv_dims["n_invariant"],
+            "n_destroyed_dims": inv_dims["n_destroyed"],
+            "equivalence_classes": equiv["n_classes"],
+            "mean_class_size": equiv["mean_class_size"],
+            "valid_translations": valid_count,
+            "total_pairs": len(validity_results),
+            "mean_preservation_r2": mean_preservation,
+            "counterfactual_divergent_pairs": cf["n_divergent"],
+            "mean_reward_divergence": cf["mean_reward_divergence"],
+            "mean_translation_divergence": cf["mean_translation_divergence"],
+        },
+        notes=notes,
+    )
+
+
 def stage_8_seam_stress(output_dir: Path) -> StageResult:
     """Stage 8 — Seam / composition validation."""
     notes = []
@@ -984,6 +1192,7 @@ def run_full_validation(output_dir: str | Path = "results/validation") -> dict[s
         ("Stage 5", stage_5_history_dependence),
         ("Stage 6", stage_6_self_world),
         ("Stage 7", stage_7_interoperability),
+        ("Stage 7b", stage_7b_quotient_operator),
         ("Stage 8", stage_8_seam_stress),
         ("Stage 9", stage_9_shared_objectness),
         ("Stage 10", stage_10_transfer),

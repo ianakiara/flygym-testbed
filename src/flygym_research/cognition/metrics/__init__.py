@@ -32,6 +32,14 @@ from .persistence_metrics import (
     predictive_utility,
     state_decay_curve,
 )
+from .quotient_metrics import (
+    counterfactual_divergence,
+    degeneracy_score,
+    environment_invariant_dimensions,
+    equivalence_class_size,
+    full_quotient_analysis,
+    translation_preserves_environment,
+)
 
 __all__ = [
     "action_trajectory_similarity",
@@ -58,4 +66,10 @@ __all__ = [
     "target_representation_stability",
     "task_performance",
     "translated_latent_alignment",
+    "counterfactual_divergence",
+    "degeneracy_score",
+    "environment_invariant_dimensions",
+    "equivalence_class_size",
+    "full_quotient_analysis",
+    "translation_preserves_environment",
 ]

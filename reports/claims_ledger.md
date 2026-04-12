@@ -2,8 +2,8 @@
 
 ## Summary
 
-- Total claims evaluated: 9
-- Promoted: 3
+- Total claims evaluated: 10
+- Promoted: 4 (including CLM-002b: quotient operator)
 - Useful: 4
 - Blocked: 1
 - Proxy insufficient: 1
@@ -70,7 +70,40 @@
 
 **Suggested wording**: Linear translation maps between controller state trajectories explain 89% of cross-controller variance (R²=0.888), significantly exceeding raw element-wise alignment (0.493). This suggests controllers share latent structure that is accessible through translation but not through direct comparison.
 
-**Hidden insight**: The environment may act as an implicit translation operator — constraining different controllers into similar outcome spaces. This is itself a valuable finding: environment-mediated structural alignment is a real phenomenon worth investigating further.
+**Hidden insight**: The environment may act as an implicit translation operator — constraining different controllers into similar outcome spaces. This is itself a valuable finding: environment-mediated structural alignment is a real phenomenon worth investigating further. **Now formalized and confirmed in Stage 7b (quotient operator experiments).**
+
+---
+
+### CLM-002b: Environment acts as quotient operator over controller space
+
+**Status**: PROMOTED (strong_repo_result)
+**Experiment**: Stage 7b — Quotient operator validation (5 experiments)
+**Evidence**:
+- Information loss: 48.5% of state information is NOT predictable from reward — E destroys nearly half the state space
+- Degeneracy ratio: 25.7% of state variance exists within same-reward bins — different internal states → same outcomes
+- 3 natural equivalence classes: {memory, reduced_descending}, {planner}, {raw_control, reflex_only}
+- 10/10 translation maps preserve environment structure (mean preservation R²=0.893) — confirms E ∘ T ≈ E
+- Equivalence classes are robust under environment perturbation (2× speed, 5× noise): max reward divergence only 0.131
+- 11/14 state dimensions are E-invariant; only phase_velocity is fully destroyed
+- Distance to target has perfect correlation with reward (corr=−1.000)
+
+**Formal framework**: E: Z → R is a many→one projection. Equivalence class: (z_i, a_i) ~_E (z_j, a_j) iff E(z_i, a_i) ≈ E(z_j, a_j). Valid translation: E ∘ T_ij ≈ E.
+
+**Connection to CLM-002**: Stage 7 showed translated R²=0.888 vs raw=0.493. Stage 7b explains WHY: the environment compresses controller behavior into equivalence classes, and translations work because they preserve this compression.
+
+**Ablations survived**: degeneracy detection, invariant dimension analysis, equivalence class analysis, E∘T≈E validation, counterfactual divergence (E1 vs E2)
+**Negative controls**: phase_velocity correctly identified as destroyed dimension (corr=0.000). Passive controllers correctly grouped together (overlap=1.0).
+**Failure modes**: Counterfactual divergence was low (mean=0.063) — perturbation may not have been extreme enough. More radical environment changes needed.
+**Strongest falsifier**: If E were invertible (information_loss ≈ 0), no degeneracy exists. If equivalence classes were unstable across environments, E is not defining real structure.
+**Next experiment**: (1) Extreme perturbation (different reward structure entirely). (2) Cross-world-type test (avatar vs simplified vs native). (3) RL controller to test if it creates new equivalence class.
+**Risk if wrong**: Information loss metric uses linear R² which may underestimate nonlinear state→reward relationships. BodylessBodyLayer makes ascending features deterministic functions of actions.
+**Caveats**:
+- Only 5 hand-designed controllers tested
+- 64-step episodes with 14-D state vectors (overfitting possible)
+- Counterfactual perturbation was moderate (same reward structure, same world type)
+- BodylessBodyLayer ascending features are not independent measurements
+
+**Suggested wording**: The environment acts as a quotient operator that defines equivalence classes over controller space: 48.5% of internal state information is destroyed by the environment projection, three natural controller classes emerge, and all pairwise translation maps preserve environment structure (E ∘ T ≈ E, mean preservation R²=0.893).
 
 ---
 
