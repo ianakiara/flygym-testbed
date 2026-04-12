@@ -348,7 +348,7 @@ class BodylessBodyLayer(BodyInterface):
             time=self.time,
             joint_angles=np.zeros(1, dtype=np.float64),
             joint_velocities=np.zeros(1, dtype=np.float64),
-            body_positions=self._position.reshape(1, -1),
+            body_positions=self._position.reshape(1, -1).copy(),
             body_rotations=np.array([[1.0, 0.0, 0.0, 0.0]], dtype=np.float64),
             contact_active=np.zeros(6, dtype=np.float64),
             contact_forces=np.zeros((6, 3), dtype=np.float64),

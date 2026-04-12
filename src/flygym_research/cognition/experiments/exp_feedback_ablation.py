@@ -27,14 +27,14 @@ EXPERIMENT_NAME = "Ascending Feedback Ablation"
 # Channel groups to ablate (matching AscendingAdapter channel groups).
 CHANNEL_GROUPS = [
     frozenset(),  # No ablation (baseline).
-    frozenset({"stability"}),
+    frozenset({"pose"}),
     frozenset({"locomotion"}),
     frozenset({"contact"}),
-    frozenset({"effort"}),
     frozenset({"target"}),
-    frozenset({"stability", "locomotion"}),
-    frozenset({"stability", "locomotion", "contact"}),
-    frozenset({"stability", "locomotion", "contact", "effort", "target"}),  # All off.
+    frozenset({"internal"}),
+    frozenset({"pose", "locomotion"}),
+    frozenset({"pose", "locomotion", "contact"}),
+    frozenset({"pose", "locomotion", "contact", "target", "internal"}),  # All off.
 ]
 
 
@@ -90,8 +90,8 @@ def generate_report(results: list[ExperimentResult]) -> str:
             "target-related channels."
         ),
         method=(
-            "Systematically disable ascending feedback channel groups (stability, "
-            "locomotion, contact, effort, target) individually and in combinations.  "
+            "Systematically disable ascending feedback channel groups (pose, "
+            "locomotion, contact, target, internal) individually and in combinations.  "
             "Run reduced-descending and memory controllers across all ablation "
             "conditions.  Compare core metrics against the unablated baseline."
         ),

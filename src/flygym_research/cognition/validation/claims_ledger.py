@@ -139,7 +139,8 @@ class ClaimsLedger:
         claim = self.get(claim_id)
         if claim is None:
             raise KeyError(f"Claim {claim_id} not found.")
-        if new_tier.value <= claim.tier.value:
+        tier_order = {ClaimTier.USEFUL: 0, ClaimTier.STRONG: 1, ClaimTier.PROMOTED: 2}
+        if tier_order[new_tier] <= tier_order[claim.tier]:
             raise ValueError(
                 f"Cannot demote or keep same tier: {claim.tier} → {new_tier}"
             )
