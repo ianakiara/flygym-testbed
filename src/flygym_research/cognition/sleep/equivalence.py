@@ -17,7 +17,7 @@ def segment_episode(
     stride: int = 8,
 ) -> list[TraceSegment]:
     if window_size <= 0 or stride <= 0:
-        raise ValueError("window_size and stride must be positive.")
+        raise ValueError("window_size and stride must be greater than zero.")
     segments: list[TraceSegment] = []
     for start in range(0, max(len(episode.transitions) - window_size + 1, 1), stride):
         end = min(start + window_size, len(episode.transitions))
