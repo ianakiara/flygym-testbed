@@ -18,4 +18,7 @@ __all__ = [
     "run_episode",
     "standard_seeds",
     "write_csv",
+    "collect_trace_bank",
 ]
+
+from .exp_sleep_trace_compressor import collect_trace_bank

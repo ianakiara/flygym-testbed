@@ -88,4 +88,23 @@ __all__ = [
     "full_publishable_analysis",
     "noise_robustness_sweep",
     "nonlinear_vs_linear_translation",
+    "compression_gain",
+    "drift_staleness_score",
+    "post_compression_robustness_delta",
+    "repairability_score",
+    "residual_utility",
+    "seam_critical_exception_score",
+    "sleep_validation_vector",
+    "trajectory_equivalence_strength",
 ]
+
+from .sleep_metrics import (
+    compression_gain,
+    drift_staleness_score,
+    post_compression_robustness_delta,
+    repairability_score,
+    residual_utility,
+    seam_critical_exception_score,
+    sleep_validation_vector,
+    trajectory_equivalence_strength,
+)
