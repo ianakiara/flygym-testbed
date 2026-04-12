@@ -384,47 +384,67 @@ def _count_by_type(results: list[RepairResult]) -> dict[str, int]:
 
 
 @dataclass(slots=True)
+class RepairROI:
+    """Return-on-investment for a single repair attempt."""
+
+    diagnosis: FailureDiagnosis
+    expected_seam_improvement: float
+    expected_mismatch_improvement: float
+    repair_cost: float  # 0–1, higher = harder to repair
+    roi_score: float  # expected improvement / cost
+
+
+@dataclass(slots=True)
 class AdaptivePatchability:
     """Data-driven, budget-constrained patchability criterion.
 
-    Replaces the fixed 1.5× margin with a criterion learned from the
-    distribution of failures in the current trace bank.
+    Replaces the fixed 1.5× margin with thresholds learned from the
+    failure distribution using percentile-based fitting and
+    cross-validated repair ROI scoring.
+
+    The learning process:
+    1. Collect all failure excesses (seam and mismatch)
+    2. Fit margins at a configurable percentile of the excess distribution
+    3. Compute per-failure repair ROI and rank by expected benefit
+    4. Cross-validate: split failures into train/holdout, fit on train,
+       validate on holdout
     """
 
     seam_margin: float = 1.5
     mismatch_margin: float = 1.5
     budget: int = 10  # max number of repairs to attempt
+    fit_percentile: float = 75.0  # percentile of excess distribution to cover
+    fit_method: str = "percentile"  # "percentile" or "median_std"
 
     @staticmethod
     def from_distribution(
         diagnoses: list[FailureDiagnosis],
         *,
         budget_fraction: float = 0.5,
+        fit_percentile: float = 75.0,
     ) -> "AdaptivePatchability":
         """Learn margins from the distribution of current failures.
 
-        Sets margins to the median excess + 1 std, ensuring we can
-        handle the typical failure while excluding extreme outliers.
+        Uses percentile-based fitting: set the margin to cover the
+        ``fit_percentile``-th percentile of excess values.  This is more
+        principled than median+std because it directly controls what
+        fraction of failures the margin is designed to handle.
         """
         seam_excesses = [d.seam_excess for d in diagnoses if d.seam_excess > 0]
         mismatch_excesses = [d.mismatch_excess for d in diagnoses if d.mismatch_excess > 0]
 
+        seam_threshold = diagnoses[0].seam_threshold if diagnoses else 0.2
+        mismatch_threshold = diagnoses[0].mismatch_threshold if diagnoses else 0.35
+
         if seam_excesses:
-            seam_typical = float(np.median(seam_excesses))
-            seam_spread = float(np.std(seam_excesses))
-            # Margin = 1 + (typical + spread) / threshold
-            seam_margin = 1.0 + (seam_typical + seam_spread) / max(
-                diagnoses[0].seam_threshold if diagnoses else 0.2, 0.01
-            )
+            pct_value = float(np.percentile(seam_excesses, fit_percentile))
+            seam_margin = 1.0 + pct_value / max(seam_threshold, 0.01)
         else:
             seam_margin = 1.5
 
         if mismatch_excesses:
-            mismatch_typical = float(np.median(mismatch_excesses))
-            mismatch_spread = float(np.std(mismatch_excesses))
-            mismatch_margin = 1.0 + (mismatch_typical + mismatch_spread) / max(
-                diagnoses[0].mismatch_threshold if diagnoses else 0.35, 0.01
-            )
+            pct_value = float(np.percentile(mismatch_excesses, fit_percentile))
+            mismatch_margin = 1.0 + pct_value / max(mismatch_threshold, 0.01)
         else:
             mismatch_margin = 1.5
 
@@ -434,10 +454,154 @@ class AdaptivePatchability:
             seam_margin=float(np.clip(seam_margin, 1.0, 3.0)),
             mismatch_margin=float(np.clip(mismatch_margin, 1.0, 3.0)),
             budget=budget,
+            fit_percentile=fit_percentile,
+            fit_method="percentile",
         )
+
+    @staticmethod
+    def from_cross_validation(
+        diagnoses: list[FailureDiagnosis],
+        transitions_by_episode: dict[str, list[StepTransition]],
+        *,
+        n_folds: int = 3,
+        percentile_candidates: tuple[float, ...] = (50.0, 65.0, 75.0, 85.0, 95.0),
+    ) -> "AdaptivePatchability":
+        """Learn margins via cross-validation over percentile candidates.
+
+        Splits failures into ``n_folds`` folds.  For each candidate
+        percentile, fits margins on training folds and evaluates repair
+        success rate on the holdout fold.  Selects the percentile that
+        maximises mean holdout repair success.
+        """
+        if len(diagnoses) < n_folds * 2:
+            # Not enough data for CV — fall back to simple percentile
+            return AdaptivePatchability.from_distribution(diagnoses)
+
+        # Shuffle diagnoses deterministically
+        indices = list(range(len(diagnoses)))
+        rng = np.random.default_rng(42)
+        rng.shuffle(indices)
+
+        fold_size = len(indices) // n_folds
+        folds: list[list[int]] = []
+        for f in range(n_folds):
+            start = f * fold_size
+            end = start + fold_size if f < n_folds - 1 else len(indices)
+            folds.append(indices[start:end])
+
+        best_pct = 75.0
+        best_score = -1.0
+
+        for pct in percentile_candidates:
+            fold_scores: list[float] = []
+            for holdout_idx in range(n_folds):
+                train_indices = []
+                for fi in range(n_folds):
+                    if fi != holdout_idx:
+                        train_indices.extend(folds[fi])
+                holdout_indices = folds[holdout_idx]
+
+                train_diags = [diagnoses[i] for i in train_indices]
+                holdout_diags = [diagnoses[i] for i in holdout_indices]
+
+                # Fit on training set
+                adaptive = AdaptivePatchability.from_distribution(
+                    train_diags, fit_percentile=pct,
+                )
+
+                # Evaluate on holdout: what fraction of holdout failures
+                # would be correctly classified as patchable AND actually
+                # succeed in repair?
+                n_holdout = len(holdout_diags)
+                n_success = 0
+                for hd in holdout_diags:
+                    if adaptive.is_patchable(hd):
+                        # Simulate repair on this failure
+                        ep_transitions = transitions_by_episode.get(hd.episode_id)
+                        if ep_transitions:
+                            result = apply_repair(hd, ep_transitions)
+                            if result.repair_success:
+                                n_success += 1
+                        else:
+                            # If no transitions, count patchable as success
+                            n_success += 1
+
+                fold_scores.append(n_success / max(n_holdout, 1))
+
+            mean_score = float(np.mean(fold_scores))
+            if mean_score > best_score:
+                best_score = mean_score
+                best_pct = pct
+
+        # Refit on all data with the best percentile
+        result = AdaptivePatchability.from_distribution(
+            diagnoses, fit_percentile=best_pct,
+        )
+        result.fit_method = f"cross_validated(pct={best_pct})"
+        return result
 
     def is_patchable(self, diagnosis: FailureDiagnosis) -> bool:
         """Check if a failure is patchable under the adaptive criterion."""
         seam_ok = diagnosis.seam_score <= diagnosis.seam_threshold * self.seam_margin
         mismatch_ok = diagnosis.mismatch_score <= diagnosis.mismatch_threshold * self.mismatch_margin
         return seam_ok and mismatch_ok
+
+    def compute_repair_roi(
+        self,
+        diagnosis: FailureDiagnosis,
+    ) -> RepairROI:
+        """Compute expected repair return-on-investment for a failure.
+
+        ROI = expected_improvement / repair_cost.
+        Higher ROI → should be repaired first (priority queue).
+        """
+        # Expected improvement: how much excess can be removed
+        seam_improvable = min(
+            diagnosis.seam_excess,
+            diagnosis.seam_threshold * (self.seam_margin - 1.0),
+        )
+        mismatch_improvable = min(
+            diagnosis.mismatch_excess,
+            diagnosis.mismatch_threshold * (self.mismatch_margin - 1.0),
+        )
+
+        # Repair cost: harder failures (joint, large excess) cost more
+        total_excess = diagnosis.seam_excess + diagnosis.mismatch_excess
+        cost = float(np.clip(total_excess / 2.0, 0.1, 1.0))
+        if diagnosis.failure_type == FailureType.JOINT_FAILURE:
+            cost = min(cost * 2.0, 1.0)
+
+        expected_improvement = seam_improvable + mismatch_improvable
+        roi = expected_improvement / max(cost, 0.01)
+
+        return RepairROI(
+            diagnosis=diagnosis,
+            expected_seam_improvement=seam_improvable,
+            expected_mismatch_improvement=mismatch_improvable,
+            repair_cost=cost,
+            roi_score=roi,
+        )
+
+    def prioritized_repair_queue(
+        self,
+        diagnoses: list[FailureDiagnosis],
+    ) -> list[RepairROI]:
+        """Rank failures by repair ROI and return top-budget candidates.
+
+        Returns a list of RepairROI objects sorted by roi_score descending,
+        limited to self.budget entries.
+        """
+        patchable = [d for d in diagnoses if self.is_patchable(d)]
+        rois = [self.compute_repair_roi(d) for d in patchable]
+        rois.sort(key=lambda r: r.roi_score, reverse=True)
+        return rois[:self.budget]
+
+    def summary(self) -> dict[str, object]:
+        """Return a summary dict of the adaptive patchability configuration."""
+        return {
+            "seam_margin": round(self.seam_margin, 3),
+            "mismatch_margin": round(self.mismatch_margin, 3),
+            "budget": self.budget,
+            "fit_percentile": self.fit_percentile,
+            "fit_method": self.fit_method,
+        }

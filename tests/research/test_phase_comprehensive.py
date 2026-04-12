@@ -921,6 +921,11 @@ class TestPOCExperiments:
         assert "tier_counts" in result
         assert "portability_stats" in result
         assert "pass_condition_met" in result
+        assert "navigation_task" in result
+        assert "hard_task_distractor" in result
+        assert "hard_tier_returns" in result
+        assert "pass_conditions" in result
+        assert "score_distribution" in result
 
     def test_backbone_shared(self, tmp_path):
         from flygym_research.cognition.experiments.exp_backbone_shared import (
@@ -939,8 +944,11 @@ class TestPOCExperiments:
         result = run_experiment(tmp_path / "repair_v2")
         assert "failure_type_distribution" in result
         assert "strategy_comparison" in result
-        assert "adaptive_patchability" in result
+        assert "method_comparison" in result
+        assert "cv_adaptive_summary" in result
+        assert "repair_roi_queue" in result
         assert "pass_condition_met" in result
+        assert "data_driven_wins" in result
 
     def test_sleep_v2(self, tmp_path):
         from flygym_research.cognition.experiments.exp_sleep_v2 import (

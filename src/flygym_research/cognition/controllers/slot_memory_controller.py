@@ -3,25 +3,27 @@
 This controller replaces the naive flat-average memory in
 :class:`MemoryController` with a structured slot-attention architecture:
 
-1. **Selective recall**: Attention over slots weighted by query-key similarity.
-   Current observation queries memory → retrieves only relevant entries.
+1. **Selective recall**: Attention over slots weighted by query-key similarity
+   *and* phase reliability.  Current observation queries memory → retrieves
+   only relevant, trustworthy entries.
 
-2. **Distractor resistance**: Write gate with novelty/importance scoring.
-   High-surprise inputs gate into dedicated slots without overwriting
-   cue-phase entries.  Cue-phase entries get high importance and resist
-   overwriting.
+2. **Distractor resistance**: Write gate with novelty/importance scoring
+   *plus* phase tagging.  Distractor-phase writes are tagged so they can be
+   down-weighted during reads.  Cue-phase entries get high importance and
+   resist overwriting.
 
-3. **Gated retrieval**: Read gate produces a confidence weight [0,1].
-   Action = confidence × memory_target + (1−confidence) × current_target.
-   When memory is stale the controller falls back to current observation.
+3. **Gated retrieval**: Read gate produces a confidence weight [0,1] that
+   accounts for both attention peakedness and phase reliability of retrieved
+   slots.  Action = confidence × memory_target + (1−confidence) ×
+   current_target.
 
 4. **Overwrite resistance**: Each slot carries an importance weight based
-   on the magnitude of the cue signal at write time.  Important slots
-   resist overwriting by requiring higher novelty to displace.
+   on the cue signal magnitude at write time.  Cue-phase slots have a
+   large protection multiplier that makes them very hard to displace.
 
-5. **Store ≠ Use separation**: Write pathway (encode → slot assignment)
-   is architecturally separate from read pathway (query → attention →
-   weighted retrieval → action modulation).
+5. **Store ≠ Use separation**: Write pathway (encode → phase tag → slot
+   assignment) is architecturally separate from read pathway (query →
+   phase-aware attention → weighted retrieval → action modulation).
 """
 
 from __future__ import annotations
@@ -33,9 +35,26 @@ import numpy as np
 from ..interfaces import BrainInterface, BrainObservation, DescendingCommand
 
 
+# Phase tags for memory slots
+_PHASE_EMPTY: int = 0
+_PHASE_CUE: int = 1
+_PHASE_DISTRACTOR: int = 2
+_PHASE_AMBIGUOUS: int = 3
+
+
+def _classify_phase(cue_signal: float, distractor_active: bool) -> int:
+    """Classify the current observation phase for slot tagging."""
+    if distractor_active:
+        return _PHASE_DISTRACTOR
+    if abs(cue_signal - 0.5) > 0.3:
+        # Strong cue signal (near 0 or 1) → informative cue phase
+        return _PHASE_CUE
+    return _PHASE_AMBIGUOUS
+
+
 @dataclass(slots=True)
 class SlotMemoryController(BrainInterface):
-    """Controller with slot-attention memory and selective gating.
+    """Controller with phase-aware slot-attention memory and selective gating.
 
     Parameters
     ----------
@@ -50,6 +69,14 @@ class SlotMemoryController(BrainInterface):
     confidence_bias : float
         Bias added to the read-gate confidence (shifts trust toward
         memory vs current observation).
+    cue_protection_multiplier : float
+        Extra protection factor for cue-phase slots.  A cue-phase slot's
+        protection score is multiplied by this factor, making it very
+        hard to overwrite.
+    distractor_read_penalty : float
+        Multiplicative penalty applied to attention scores of
+        distractor-tagged slots during read (0–1).  Lower = more
+        suppression of distractor memory.
     """
 
     n_slots: int = 8
@@ -57,30 +84,41 @@ class SlotMemoryController(BrainInterface):
     gate_threshold: float = 0.3
     importance_decay: float = 0.98
     confidence_bias: float = 0.0
+    cue_protection_multiplier: float = 3.0
+    distractor_read_penalty: float = 0.15
 
     # ── Internal state (not constructor args) ────────────────────────────
     _slots: np.ndarray = field(init=False)
     _importance: np.ndarray = field(init=False)
     _slot_ages: np.ndarray = field(init=False)
+    _phase_tags: np.ndarray = field(init=False)  # per-slot phase tag
     _hidden: np.ndarray = field(init=False)
     _step_count: int = field(default=0, init=False)
     _prev_vec: np.ndarray = field(init=False)
+    _cue_memory: np.ndarray = field(init=False)  # dedicated cue snapshot
+    _cue_confidence: float = field(default=0.0, init=False)
     _rng: np.random.Generator = field(init=False)
 
     def __post_init__(self) -> None:
         self._slots = np.zeros((self.n_slots, self.slot_dim), dtype=np.float64)
         self._importance = np.zeros(self.n_slots, dtype=np.float64)
         self._slot_ages = np.zeros(self.n_slots, dtype=np.float64)
+        self._phase_tags = np.full(self.n_slots, _PHASE_EMPTY, dtype=np.int32)
         self._hidden = np.zeros(self.slot_dim, dtype=np.float64)
         self._prev_vec = np.zeros(self.slot_dim, dtype=np.float64)
+        self._cue_memory = np.zeros(self.slot_dim, dtype=np.float64)
+        self._cue_confidence = 0.0
         self._rng = np.random.default_rng()
 
     def reset(self, seed: int | None = None) -> None:
         self._slots = np.zeros((self.n_slots, self.slot_dim), dtype=np.float64)
         self._importance = np.zeros(self.n_slots, dtype=np.float64)
         self._slot_ages = np.zeros(self.n_slots, dtype=np.float64)
+        self._phase_tags = np.full(self.n_slots, _PHASE_EMPTY, dtype=np.int32)
         self._hidden = np.zeros(self.slot_dim, dtype=np.float64)
         self._prev_vec = np.zeros(self.slot_dim, dtype=np.float64)
+        self._cue_memory = np.zeros(self.slot_dim, dtype=np.float64)
+        self._cue_confidence = 0.0
         self._step_count = 0
         self._rng = np.random.default_rng(seed)
 
@@ -92,21 +130,52 @@ class SlotMemoryController(BrainInterface):
         # ── Encode current observation into slot_dim vector ──────────────
         current_vec = self._encode_observation(observation)
 
-        # ── WRITE PATHWAY: decide whether/where to write ─────────────────
-        novelty = self._compute_novelty(current_vec)
+        # ── Determine current phase ──────────────────────────────────────
         cue_signal = float(observation.world.observables.get("cue_signal", 0.5))
+        distractor_active = bool(
+            observation.world.observables.get("distractor_active", False)
+        )
+        current_phase = _classify_phase(cue_signal, distractor_active)
+
+        # ── WRITE PATHWAY: phase-aware slot writing ──────────────────────
+        novelty = self._compute_novelty(current_vec)
         # Importance is high when cue is clearly informative (near 0 or 1)
-        write_importance = abs(cue_signal - 0.5) * 2.0 + novelty * 0.5
+        cue_informativeness = abs(cue_signal - 0.5) * 2.0
+        write_importance = cue_informativeness + novelty * 0.5
+
+        # Cue-phase entries get a large importance boost
+        if current_phase == _PHASE_CUE:
+            write_importance *= 2.0
+            # Snapshot the cue encoding for direct recall later
+            self._cue_memory = current_vec.copy()
+            self._cue_confidence = min(1.0, cue_informativeness + 0.3)
+        elif current_phase == _PHASE_DISTRACTOR:
+            # Distractor-phase: reduce write importance to discourage
+            # overwriting cue slots, but still allow writing to empty slots
+            write_importance *= 0.3
 
         if novelty >= self.gate_threshold:
-            self._write_to_slot(current_vec, write_importance)
+            self._write_to_slot(current_vec, write_importance, current_phase)
 
         # Age all slots and decay importance
         self._slot_ages += 1.0
         self._importance *= self.importance_decay
 
-        # ── READ PATHWAY: attention-weighted retrieval ────────────────────
-        memory_readout, confidence = self._read_from_slots(current_vec)
+        # ── READ PATHWAY: phase-aware attention-weighted retrieval ────────
+        memory_readout, read_confidence = self._read_from_slots(current_vec)
+
+        # ── Cue snapshot fallback ────────────────────────────────────────
+        # During ambiguous phase, if we have a strong cue snapshot, prefer
+        # it over the general slot readout (which may be corrupted by
+        # distractor entries).
+        if current_phase == _PHASE_AMBIGUOUS and self._cue_confidence > 0.3:
+            # Blend: cue snapshot weighted by cue_confidence
+            cue_weight = self._cue_confidence
+            memory_readout = (
+                cue_weight * self._cue_memory
+                + (1.0 - cue_weight) * memory_readout
+            )
+            read_confidence = max(read_confidence, self._cue_confidence * 0.8)
 
         # ── Recurrent hidden state update ────────────────────────────────
         self._hidden = 0.85 * self._hidden + 0.15 * np.tanh(current_vec)
@@ -120,14 +189,32 @@ class SlotMemoryController(BrainInterface):
 
         # Memory target: use the target direction stored in memory readout.
         # Slot dims layout: [features..., target_x, target_y, cue_signal]
-        # Last 3 dims mirror the encoding layout.
         mem_target = memory_readout[-3:-1] if len(memory_readout) >= 3 else np.zeros(2)
 
-        # Gated retrieval: confidence controls how much we trust memory
-        adjusted_confidence = float(np.clip(confidence + self.confidence_bias, 0.0, 1.0))
+        # ── Phase-aware confidence gating ────────────────────────────────
+        # During cue phase: trust current observation (cue is visible)
+        # During distractor phase: trust memory MORE (current input is misleading)
+        # During ambiguous phase: trust memory if confident
+        if current_phase == _PHASE_CUE:
+            # Cue is visible — use current observation primarily
+            effective_confidence = float(np.clip(
+                read_confidence * 0.3 + self.confidence_bias, 0.0, 0.4
+            ))
+        elif current_phase == _PHASE_DISTRACTOR:
+            # Distractor is active — current target_vector is WRONG.
+            # Trust memory strongly (the cue-phase entries).
+            effective_confidence = float(np.clip(
+                read_confidence * 0.9 + 0.3 + self.confidence_bias, 0.5, 1.0
+            ))
+        else:
+            # Ambiguous phase — use memory confidence as-is
+            effective_confidence = float(np.clip(
+                read_confidence + self.confidence_bias, 0.0, 1.0
+            ))
+
         corrected_target = (
-            adjusted_confidence * mem_target
-            + (1.0 - adjusted_confidence) * target_vector
+            effective_confidence * mem_target
+            + (1.0 - effective_confidence) * target_vector
         )
 
         # Hidden state biases action (dimension-sensitive for causal tests)
@@ -197,15 +284,23 @@ class SlotMemoryController(BrainInterface):
         novelty = float(np.clip(0.5 * diff_prev + 0.5 * min_dist, 0.0, 2.0)) / 2.0
         return novelty
 
-    def _write_to_slot(self, vec: np.ndarray, importance: float) -> None:
-        """Write vec into the best available slot.
+    def _write_to_slot(
+        self, vec: np.ndarray, importance: float, phase: int
+    ) -> None:
+        """Write vec into the best available slot with phase tagging.
 
-        Strategy: find the slot with the lowest (importance / age) score —
-        this prefers overwriting old unimportant slots while protecting
-        important recent ones.
+        Strategy: find the slot with the lowest protection score.
+        Cue-phase slots get extra protection via cue_protection_multiplier.
+        Distractor-phase slots get no extra protection, making them easy
+        to displace.
         """
         # Protection score: high importance + low age = hard to overwrite
         protection = self._importance / (self._slot_ages + 1.0)
+
+        # Cue-phase slots get extra protection
+        for i in range(self.n_slots):
+            if self._phase_tags[i] == _PHASE_CUE:
+                protection[i] *= self.cue_protection_multiplier
 
         # Find least protected slot
         target_idx = int(np.argmin(protection))
@@ -215,16 +310,19 @@ class SlotMemoryController(BrainInterface):
             self._slots[target_idx] = vec.copy()
             self._importance[target_idx] = importance
             self._slot_ages[target_idx] = 0.0
+            self._phase_tags[target_idx] = phase
 
     # ── Read pathway ─────────────────────────────────────────────────────
 
     def _read_from_slots(
         self, query: np.ndarray
     ) -> tuple[np.ndarray, float]:
-        """Attention-weighted read from slots.
+        """Phase-aware attention-weighted read from slots.
+
+        Distractor-tagged slots get penalized attention weight.
+        Cue-tagged slots get boosted attention weight.
 
         Returns (readout_vector, confidence).
-        Confidence reflects how strongly memory matches the current query.
         """
         # Check if any slots are populated
         total_importance = float(np.sum(self._importance))
@@ -232,9 +330,20 @@ class SlotMemoryController(BrainInterface):
             return np.zeros(self.slot_dim, dtype=np.float64), 0.0
 
         # Compute attention scores: dot product of query with each slot
-        # weighted by importance (important slots get higher attention)
+        # weighted by importance
         raw_scores = self._slots @ query  # (n_slots,)
         weighted_scores = raw_scores * self._importance
+
+        # ── Phase-aware attention modulation ──────────────────────────────
+        # Penalize distractor-tagged slots, boost cue-tagged slots
+        phase_modulation = np.ones(self.n_slots, dtype=np.float64)
+        for i in range(self.n_slots):
+            if self._phase_tags[i] == _PHASE_DISTRACTOR:
+                phase_modulation[i] = self.distractor_read_penalty
+            elif self._phase_tags[i] == _PHASE_CUE:
+                phase_modulation[i] = 2.0  # boost cue slots
+
+        weighted_scores *= phase_modulation
 
         # Softmax with temperature
         max_score = float(np.max(weighted_scores))
@@ -252,14 +361,27 @@ class SlotMemoryController(BrainInterface):
         # Weighted sum of slot contents
         readout = attention_weights @ self._slots  # (slot_dim,)
 
-        # Confidence: how peaked is the attention distribution?
-        # High entropy → low confidence, low entropy → high confidence
+        # ── Confidence: combines attention peakedness + phase reliability ─
+        # How peaked is the attention distribution?
         entropy = -float(np.sum(
             attention_weights * np.log(np.clip(attention_weights, 1e-10, 1.0))
         ))
         max_entropy = float(np.log(max(np.sum(self._importance > 1e-6), 1)))
-        confidence = 1.0 - (entropy / max(max_entropy, 1e-6))
-        confidence = float(np.clip(confidence, 0.0, 1.0))
+        attention_confidence = 1.0 - (entropy / max(max_entropy, 1e-6))
+
+        # Phase reliability: what fraction of attention goes to cue slots?
+        cue_attention_mass = float(np.sum(
+            attention_weights * (self._phase_tags == _PHASE_CUE).astype(np.float64)
+        ))
+        distractor_attention_mass = float(np.sum(
+            attention_weights * (self._phase_tags == _PHASE_DISTRACTOR).astype(np.float64)
+        ))
+        # Reliability bonus: more cue attention → higher confidence
+        phase_reliability = cue_attention_mass - distractor_attention_mass
+
+        confidence = float(np.clip(
+            0.5 * attention_confidence + 0.5 * phase_reliability, 0.0, 1.0
+        ))
 
         return readout, confidence
 
@@ -267,10 +389,21 @@ class SlotMemoryController(BrainInterface):
 
     def get_internal_state(self) -> dict[str, float]:
         active_slots = int(np.sum(self._importance > 1e-6))
+        n_cue_slots = int(np.sum(
+            (self._phase_tags == _PHASE_CUE)
+            & (self._importance > 1e-6)
+        ))
+        n_distractor_slots = int(np.sum(
+            (self._phase_tags == _PHASE_DISTRACTOR)
+            & (self._importance > 1e-6)
+        ))
         return {
             "hidden_mean": float(np.mean(self._hidden)),
             "hidden_norm": float(np.linalg.norm(self._hidden)),
             "active_slots": float(active_slots),
+            "cue_slots": float(n_cue_slots),
+            "distractor_slots": float(n_distractor_slots),
+            "cue_confidence": self._cue_confidence,
             "mean_importance": float(np.mean(self._importance)),
             "max_importance": float(np.max(self._importance)),
             "step_count": float(self._step_count),
@@ -301,6 +434,7 @@ class SlotMemoryController(BrainInterface):
         self._slots = self._slots[perm]
         self._importance = self._importance[perm]
         self._slot_ages = self._slot_ages[perm]
+        self._phase_tags = self._phase_tags[perm]
         # Also shuffle within each active slot
         for i in range(self.n_slots):
             if self._importance[i] > 1e-6:
