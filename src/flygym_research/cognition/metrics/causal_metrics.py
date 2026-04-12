@@ -20,7 +20,12 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..interfaces import StepTransition
+from ..interfaces import DescendingCommand, StepTransition
+
+
+def _move_intent(t: StepTransition) -> float:
+    """Extract move_intent, returning 0.0 for non-descending actions."""
+    return float(t.action.move_intent) if isinstance(t.action, DescendingCommand) else 0.0
 
 
 def causal_influence_score(
@@ -60,11 +65,11 @@ def causal_influence_score(
 
     # Action divergence.
     base_actions = np.array(
-        [float(getattr(t.action, "move_intent", 0.0)) for t in baseline_transitions[:n]],
+        [_move_intent(t) for t in baseline_transitions[:n]],
         dtype=np.float64,
     )
     int_actions = np.array(
-        [float(getattr(t.action, "move_intent", 0.0)) for t in intervened_transitions[:n]],
+        [_move_intent(t) for t in intervened_transitions[:n]],
         dtype=np.float64,
     )
     action_div = float(np.mean(np.abs(base_actions - int_actions)))
@@ -117,11 +122,11 @@ def epiphenomenal_test(
         return {"epiphenomenal_score": 0.5, "state_action_mutual_info_proxy": 0.0}
 
     base_actions = np.array(
-        [float(getattr(t.action, "move_intent", 0.0)) for t in baseline_transitions[:n]],
+        [_move_intent(t) for t in baseline_transitions[:n]],
         dtype=np.float64,
     )
     shuf_actions = np.array(
-        [float(getattr(t.action, "move_intent", 0.0)) for t in state_shuffled_transitions[:n]],
+        [_move_intent(t) for t in state_shuffled_transitions[:n]],
         dtype=np.float64,
     )
 
@@ -183,7 +188,7 @@ def temporal_causal_depth(
         return result
 
     actions = np.array(
-        [float(getattr(t.action, "move_intent", 0.0)) for t in transitions],
+        [_move_intent(t) for t in transitions],
         dtype=np.float64,
     )
     changes = np.diff(actions)

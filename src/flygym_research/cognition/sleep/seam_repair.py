@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from ..interfaces import DescendingCommand
 from ..metrics import seam_fragility, translation_preserves_environment
 from ..metrics.sleep_metrics import repairability_score
 from .trace_schema import TraceEpisode
@@ -20,9 +21,9 @@ def analyze_seam_failures(
         by_world.setdefault(episode.world_mode, []).append(episode)
         seam = seam_fragility(episode.transitions)["seam_fragility"]
         target_bias = [
-            np.asarray(getattr(t.action, "target_bias", (0.0, 0.0)), dtype=np.float64)
+            np.asarray(t.action.target_bias, dtype=np.float64)
             for t in episode.transitions
-            if hasattr(t.action, "target_bias")
+            if isinstance(t.action, DescendingCommand)
         ]
         world_target = [
             np.asarray(

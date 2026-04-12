@@ -88,9 +88,15 @@ def post_compression_robustness_delta(
     keys = sorted(set(baseline_metrics) | set(compressed_metrics))
     deltas: list[float] = []
     for key in keys:
-        raw = compressed_metrics.get(key, 0.0) - baseline_metrics.get(key, 0.0)
+        base_val = baseline_metrics.get(key, 0.0)
+        comp_val = compressed_metrics.get(key, 0.0)
+        raw = comp_val - base_val
         # Negate "lower is better" metrics so improvement is always positive.
-        deltas.append(-raw if key in _LOWER_IS_BETTER else raw)
+        directed = -raw if key in _LOWER_IS_BETTER else raw
+        # Normalise by baseline magnitude so metrics on different scales
+        # (e.g. return ≈ −40 vs. success ≈ 0.2) contribute equally.
+        denom = abs(base_val) if abs(base_val) > 1e-8 else 1.0
+        deltas.append(directed / denom)
     mean_delta = float(np.mean(deltas)) if deltas else 0.0
     return {
         "post_compression_robustness_delta": mean_delta,

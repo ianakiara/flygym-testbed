@@ -99,12 +99,16 @@ class MemoryController(BrainInterface):
         stability = features.get("stability", 0.0)
 
         # Memory-modulated move intent: hidden state biases action strength.
-        hidden_bias = float(np.mean(self._hidden))
+        # Use individual hidden dimensions so that the controller is sensitive
+        # to dimension ordering (required for shuffle-based epiphenomenal tests).
+        h_move = float(self._hidden[0]) if self.hidden_dim > 0 else 0.0
+        h_turn = float(self._hidden[1]) if self.hidden_dim > 1 else 0.0
+        h_speed = float(self._hidden[2]) if self.hidden_dim > 2 else 0.0
         memory_signal = float(np.mean(memory_context[:2])) if len(memory_context) >= 2 else 0.0
 
-        move_intent = float(np.clip(target_vector[0] + 0.1 * hidden_bias, -1.0, 1.0))
-        turn_intent = float(np.clip(target_vector[1] + 0.1 * memory_signal, -1.0, 1.0))
-        speed_mod = float(np.clip(0.3 + 0.2 * hidden_bias, -1.0, 1.0))
+        move_intent = float(np.clip(target_vector[0] + 0.1 * h_move, -1.0, 1.0))
+        turn_intent = float(np.clip(target_vector[1] + 0.1 * (h_turn + memory_signal), -1.0, 1.0))
+        speed_mod = float(np.clip(0.3 + 0.2 * h_speed, -1.0, 1.0))
 
         return DescendingCommand(
             move_intent=move_intent,

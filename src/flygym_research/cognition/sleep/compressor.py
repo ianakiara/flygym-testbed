@@ -89,10 +89,37 @@ def compress_trace_bank(
         for episode in episodes
         if episode.episode_id in set(unique_compressed) | set(unique_residual)
     ]
+    # Build a weight map so each representative is weighted by the number
+    # of original episodes it stands for.  Without this, a representative
+    # from a cluster of 10 counts the same as a singleton, which unfairly
+    # drags down the compressed-pool average.
+    _weight_map: dict[str, int] = {}
+    for candidate in candidates:
+        if candidate.decision == "compress":
+            n_compressed = len(candidate.member_episode_ids) - len(candidate.residual_episode_ids)
+            _weight_map[candidate.representative_episode_id] = max(n_compressed, 1)
+            for rid in candidate.residual_episode_ids:
+                _weight_map[rid] = 1
+        else:
+            for eid in candidate.member_episode_ids:
+                _weight_map[eid] = 1
+            for rid in candidate.residual_episode_ids:
+                _weight_map[rid] = 1
+
+    def _weighted_mean(pool: list[TraceEpisode], key: str) -> float:
+        if not pool:
+            return 0.0
+        values = [ep.summary_metrics.get(key, 0.0) for ep in pool]
+        weights = [float(_weight_map.get(ep.episode_id, 1)) for ep in pool]
+        total_w = sum(weights)
+        if total_w < 1e-12:
+            return float(np.mean(values))
+        return float(np.average(values, weights=weights))
+
     compressed_metrics = {
-        "return": _mean_metric(compressed_pool, "return"),
-        "success": _mean_metric(compressed_pool, "success"),
-        "seam_fragility": _mean_metric(compressed_pool, "seam_fragility"),
+        "return": _weighted_mean(compressed_pool, "return"),
+        "success": _weighted_mean(compressed_pool, "success"),
+        "seam_fragility": _weighted_mean(compressed_pool, "seam_fragility"),
         "interoperability": baseline_metrics["interoperability"],
     }
     robustness = post_compression_robustness_delta(baseline_metrics, compressed_metrics)
