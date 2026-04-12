@@ -40,7 +40,7 @@ def run_experiment(output_dir: str | Path) -> dict[str, Any]:
 
     # ── Validate all 10 steps completed ──────────────────────────────
     all_steps = sleep_result.cycle_steps_completed
-    steps_complete = len(all_steps) == 11  # 10 steps + validate
+    steps_complete = len(all_steps) == 10  # steps 1_classify through 10_validate
 
     # ── Pass conditions ──────────────────────────────────────────────
     no_sleep_size = comparison["no_sleep"]["size"]

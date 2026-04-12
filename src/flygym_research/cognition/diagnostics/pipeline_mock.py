@@ -173,10 +173,15 @@ def build_default_pipeline(
 def apply_perturbation(
     pipeline_result: dict[str, Any],
     perturbation: PerturbationType,
+    pipeline: Pipeline,
     *,
     rng: np.random.Generator | None = None,
 ) -> dict[str, Any]:
-    """Apply a perturbation to pipeline intermediates and re-run downstream.
+    """Apply a perturbation at a seam and re-run downstream stages.
+
+    Unlike a simple data mutation, this function actually propagates the
+    perturbed intermediate through the remaining pipeline stages so that
+    ``final_output`` reflects the downstream impact.
 
     Returns the perturbed result with metadata about what changed.
     """
@@ -185,66 +190,87 @@ def apply_perturbation(
     if len(intermediates) < 3:
         return pipeline_result
 
-    perturbed = dict(pipeline_result)
     perturbation_detail: dict[str, Any] = {"type": perturbation.value}
 
+    # Determine which stage's output to perturb and re-run from there.
+    # Stages: 0=input, 1=retriever, 2=processor, 3=executor
+    perturbed_stage_idx: int = 1  # default: perturb after retriever
+    perturbed_data: dict[str, Any] = dict(intermediates[1]["data"])
+
     if perturbation == PerturbationType.CHUNK_MISMATCH:
-        # Replace retrieved chunks with irrelevant ones
-        retriever_data = intermediates[1]["data"]
-        if "chunks" in retriever_data:
-            chunks = retriever_data["chunks"]
-            if chunks:
-                # Swap first chunk with a dummy
-                chunks = [{"id": "wrong", "text": "Irrelevant noise.", "relevance": 0.1}] + chunks[1:]
-                retriever_data = dict(retriever_data)
-                retriever_data["chunks"] = chunks
+        perturbed_stage_idx = 1
+        perturbed_data = dict(intermediates[1]["data"])
+        if "chunks" in perturbed_data and perturbed_data["chunks"]:
+            perturbed_data["chunks"] = [
+                {"id": "wrong", "text": "Irrelevant noise.", "relevance": 0.1},
+            ] + perturbed_data["chunks"][1:]
         perturbation_detail["changed"] = "retriever chunks"
 
     elif perturbation == PerturbationType.MISSING_JOIN_FACT:
-        # Drop a fact from the processor output
-        proc_data = intermediates[2]["data"] if len(intermediates) > 2 else {}
-        if "facts" in proc_data and proc_data["facts"]:
-            proc_data = dict(proc_data)
-            proc_data["facts"] = proc_data["facts"][1:]  # drop first fact
-            proc_data["n_facts"] = len(proc_data["facts"])
+        perturbed_stage_idx = 2
+        perturbed_data = dict(intermediates[2]["data"])
+        if "facts" in perturbed_data and perturbed_data["facts"]:
+            perturbed_data["facts"] = perturbed_data["facts"][1:]
+            perturbed_data["n_facts"] = len(perturbed_data["facts"])
+            perturbed_data["synthesis"] = " ".join(
+                f.get("content", "") for f in perturbed_data["facts"]
+            )
         perturbation_detail["changed"] = "processor facts"
 
     elif perturbation == PerturbationType.REORDERED_OUTPUTS:
-        # Reverse the order of facts
-        proc_data = intermediates[2]["data"] if len(intermediates) > 2 else {}
-        if "facts" in proc_data and len(proc_data["facts"]) > 1:
-            proc_data = dict(proc_data)
-            proc_data["facts"] = list(reversed(proc_data["facts"]))
+        perturbed_stage_idx = 2
+        perturbed_data = dict(intermediates[2]["data"])
+        if "facts" in perturbed_data and len(perturbed_data["facts"]) > 1:
+            perturbed_data["facts"] = list(reversed(perturbed_data["facts"]))
         perturbation_detail["changed"] = "fact ordering"
 
     elif perturbation == PerturbationType.SCHEMA_MISMATCH:
-        # Rename a field
-        proc_data = intermediates[2]["data"] if len(intermediates) > 2 else {}
-        proc_data = dict(proc_data)
-        if "facts" in proc_data:
-            proc_data["data_points"] = proc_data.pop("facts")  # rename
-        perturbation_detail["changed"] = "schema (facts → data_points)"
+        perturbed_stage_idx = 2
+        perturbed_data = dict(intermediates[2]["data"])
+        if "facts" in perturbed_data:
+            perturbed_data["data_points"] = perturbed_data.pop("facts")
+        perturbation_detail["changed"] = "schema (facts -> data_points)"
 
     elif perturbation == PerturbationType.PARTIAL_SUMMARY_LOSS:
-        # Truncate synthesis
-        proc_data = intermediates[2]["data"] if len(intermediates) > 2 else {}
-        if "synthesis" in proc_data:
-            proc_data = dict(proc_data)
-            proc_data["synthesis"] = proc_data["synthesis"][:10]  # severe truncation
+        perturbed_stage_idx = 2
+        perturbed_data = dict(intermediates[2]["data"])
+        if "synthesis" in perturbed_data:
+            perturbed_data["synthesis"] = perturbed_data["synthesis"][:10]
         perturbation_detail["changed"] = "synthesis truncation"
 
     elif perturbation == PerturbationType.STALE_MEMORY:
-        # Use outdated knowledge base results
-        retriever_data = intermediates[1]["data"]
-        if "chunks" in retriever_data:
-            retriever_data = dict(retriever_data)
-            for chunk in retriever_data["chunks"]:
-                if isinstance(chunk, dict):
-                    chunk["text"] = chunk.get("text", "") + " [STALE]"
+        perturbed_stage_idx = 1
+        perturbed_data = dict(intermediates[1]["data"])
+        if "chunks" in perturbed_data:
+            stale_chunks = []
+            for chunk in perturbed_data["chunks"]:
+                c = dict(chunk) if isinstance(chunk, dict) else {"text": str(chunk)}
+                c["text"] = c.get("text", "") + " [STALE]"
+                c["relevance"] = max(0.0, c.get("relevance", 0.5) - 0.3)
+                stale_chunks.append(c)
+            perturbed_data["chunks"] = stale_chunks
         perturbation_detail["changed"] = "knowledge staleness"
 
-    perturbed["perturbation"] = perturbation_detail
-    return perturbed
+    # ── Re-run downstream stages from perturbed_stage_idx onward ──────
+    current = perturbed_data
+    new_intermediates = list(intermediates[: perturbed_stage_idx + 1])
+    # Replace the perturbed stage output
+    new_intermediates[-1] = {
+        "stage": intermediates[perturbed_stage_idx]["stage"],
+        "data": current,
+    }
+
+    # Run remaining stages
+    for stage in pipeline.stages[perturbed_stage_idx:]:
+        current = stage.process(current)
+        new_intermediates.append({"stage": stage.name, "data": current})
+
+    return {
+        "final_output": current,
+        "intermediates": new_intermediates,
+        "n_stages": len(pipeline.stages),
+        "perturbation": perturbation_detail,
+    }
 
 
 # ── Seam Metrics for Pipeline ────────────────────────────────────────────

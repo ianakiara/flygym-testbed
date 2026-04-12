@@ -837,7 +837,7 @@ class TestPipelineMock:
         )
         pipeline = build_default_pipeline()
         baseline = pipeline.run({"query": "What is Paris?"})
-        perturbed = apply_perturbation(baseline, PerturbationType.CHUNK_MISMATCH)
+        perturbed = apply_perturbation(baseline, PerturbationType.CHUNK_MISMATCH, pipeline)
         assert "perturbation" in perturbed
         assert perturbed["perturbation"]["type"] == "chunk_mismatch"
 
@@ -847,7 +847,7 @@ class TestPipelineMock:
         )
         pipeline = build_default_pipeline()
         baseline = pipeline.run({"query": "test"})
-        perturbed = apply_perturbation(baseline, PerturbationType.SCHEMA_MISMATCH)
+        perturbed = apply_perturbation(baseline, PerturbationType.SCHEMA_MISMATCH, pipeline)
         assert "perturbation" in perturbed
 
     def test_pipeline_seam_fragility(self):
@@ -859,7 +859,7 @@ class TestPipelineMock:
         baseline = pipeline.run({"query": "What is machine learning?"})
         perturbed_results = {}
         for ptype in PerturbationType:
-            perturbed_results[ptype.value] = apply_perturbation(baseline, ptype)
+            perturbed_results[ptype.value] = apply_perturbation(baseline, ptype, pipeline)
         analysis = pipeline_seam_fragility(baseline, perturbed_results)
         assert "mean_seam_fragility" in analysis
         assert "max_seam_fragility" in analysis
@@ -891,8 +891,8 @@ class TestPipelineMock:
         pipeline = build_default_pipeline()
         baseline = pipeline.run({"query": "test all perturbations"})
         for ptype in PerturbationType:
-            perturbed = apply_perturbation(baseline, ptype)
-            assert "final_output" in perturbed or "perturbation" in perturbed
+            perturbed = apply_perturbation(baseline, ptype, pipeline)
+            assert "final_output" in perturbed
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -37,11 +37,10 @@ def run_experiment(output_dir: str | Path) -> dict[str, Any]:
     for query in queries:
         baseline_result = pipeline.run(query)
 
-        # ── Apply all perturbations ──────────────────────────────────
+        # ── Apply all perturbations and re-run downstream ─────────────
         perturbed_results = {}
         for ptype in PerturbationType:
-            perturbed = apply_perturbation(baseline_result, ptype)
-            # Re-run downstream stages with perturbed intermediates
+            perturbed = apply_perturbation(baseline_result, ptype, pipeline)
             perturbed_results[ptype.value] = perturbed
 
         # ── Compute seam fragility ───────────────────────────────────
