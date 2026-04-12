@@ -237,7 +237,7 @@ class BodylessBodyLayer(BodyInterface):
         del world_state
         delta = (
             np.array([command.move_intent, command.turn_intent, 0.0], dtype=np.float64)
-            * 0.1
+            * self.config.bodyless_position_scale
         )
         self._position += delta
         self.time += self.config.phase_increment

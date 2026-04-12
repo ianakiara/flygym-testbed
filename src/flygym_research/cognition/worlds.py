@@ -196,7 +196,7 @@ class AvatarRemappedWorld(WorldInterface):
             )
         target_vector = self._target_xy - self._avatar_xy
         distance = float(np.linalg.norm(target_vector))
-        success = distance <= 0.2
+        success = distance <= self.config.avatar_success_radius
         reward = -distance + 0.2 * stability
         return WorldState(
             mode="avatar_remapped",

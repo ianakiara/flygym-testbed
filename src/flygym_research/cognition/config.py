@@ -16,6 +16,7 @@ class BodyLayerConfig:
     kp: float = 45.0
     force_range: tuple[float, float] = (-30.0, 30.0)
     disabled_feedback_channels: frozenset[str] = field(default_factory=frozenset)
+    bodyless_position_scale: float = 0.1
 
 
 @dataclass(slots=True)
@@ -29,3 +30,4 @@ class EnvConfig:
     avatar_min_stability_scale: float = 0.25
     avatar_stability_gain: float = 0.75
     avatar_external_event_period: int = 7
+    avatar_success_radius: float = 0.2
