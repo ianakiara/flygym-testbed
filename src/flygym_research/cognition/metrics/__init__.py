@@ -12,10 +12,14 @@ from .disruption_metrics import (
     global_disruption_signature,
 )
 from .interoperability_metrics import (
+    action_trajectory_similarity,
     controller_action_distribution,
+    extract_state_matrix,
     interoperability_score,
     latent_state_similarity,
+    raw_latent_alignment,
     reward_trajectory_similarity,
+    translated_latent_alignment,
 )
 from .objectness_metrics import (
     cross_condition_objectness,
@@ -30,16 +34,19 @@ from .persistence_metrics import (
 )
 
 __all__ = [
+    "action_trajectory_similarity",
     "compute_metric_vector",
     "controller_action_distribution",
     "cross_condition_objectness",
     "cross_time_mutual_information",
+    "extract_state_matrix",
     "global_disruption_signature",
     "history_dependence",
     "hysteresis_metric",
     "interoperability_score",
     "latent_state_similarity",
     "predictive_utility",
+    "raw_latent_alignment",
     "reward_trajectory_similarity",
     "seam_fragility",
     "self_world_separation",
@@ -50,4 +57,5 @@ __all__ = [
     "summarize_metrics",
     "target_representation_stability",
     "task_performance",
+    "translated_latent_alignment",
 ]

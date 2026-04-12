@@ -10,7 +10,7 @@
 | 4. Ascending Loop | **STRONG PASS** | Pose channel ablation causes 100% stability drop. Multiple channels produce different collapse signatures. |
 | 5. History Dependence | **PASS** | Memory controller history_dep=0.818, random=0.034. Autocorrelation-based metric correctly captures temporal structure within state buckets. |
 | 6. Self/World | **PASS** | Memory controller |self_world|=0.077 beats all baselines (reflex=0.000, bodyless=0.061, random=0.005). Activity-gated metric prevents trivial scores from static controllers. |
-| 7. Interoperability | **PASS** | Translated alignment (0.437) massively beats raw alignment (0.000). Gap of 0.437 far exceeds 0.10 threshold. |
+| 7. Interoperability | **PASS** | Linear translation R²=0.888 vs raw alignment 0.493. Gap of 0.394 with reward excluded from composite. 14-dimensional state vectors, 10 pairs, equal-length episodes. |
 | 8. Seam Stress | **PASS** | Breaking descending channels causes 100% stability drop even when raw performance improves (-26.05). Seam perturbation predicts structural failure. |
 | 9. Shared Objectness | **PASS** | Pose-ablation stress causes internal objectness to drop 0.656→0.484 (Δ=0.172) while shared similarity rises 0.586→0.898 (controllers converge to similar broken behavior). Stress reveals structural degradation. |
 | 10. Transfer | **PASS** | Stability, persistence, and history survive across all 3 worlds. |
@@ -42,7 +42,7 @@ Six bugs were discovered and corrected during the deep audit:
 3. **Ascending feedback loop matters structurally** — pose channel ablation destroys stability (1.0 → 0.0). Different channels produce different collapse signatures. **STRONG** finding.
 4. **History dependence is real** — memory/reduced_descending controllers show high within-bucket temporal autocorrelation (0.75–0.82), random shows near-zero (0.03). History-aware controllers produce temporally structured actions given the same coarse state.
 5. **Self/world separation signal exists** — memory controller responds differently to world perturbations vs. self-caused changes, beating all baselines including bodyless and random.
-6. **Controller interoperability is real** — translated alignment (0.437) massively outperforms raw (0.000) across all 10 controller pairs.
+6. **Controller interoperability is real** — linear translation maps between 14-dimensional state vectors explain 89% of variance (R²=0.888) vs 49% raw alignment (0.493) across 10 controller pairs. Reward excluded from composite to prevent environment-imposed inflation. Strongest gains on dissimilar pairs: planner↔reflex_only raw=0.21→translated=0.89.
 7. **Seam perturbation predicts failure** — broken seams cause stability collapse even when reward improves. **STRONG** finding.
 8. **Shared objectness responds to stress** — pose ablation degrades internal tracking (0.656→0.484) while controllers converge to similar broken behavior (shared 0.586→0.898). Stress reveals structural change.
 9. **Stability, persistence, and history transfer** across all 3 worlds — not local hacks.
@@ -61,11 +61,13 @@ Six bugs were discovered and corrected during the deep audit:
 
 Evidence: pose ablation → 100% stability collapse; different channels → different signatures; survives transfer.
 
-### B. Controller interoperability over raw alignment → **PROMOTED** (strong_repo_result)
+### B. Linear translation maps reveal shared controller structure → **PROMOTED** (strong_repo_result)
 
-> Translated controller alignment reveals shared structure that raw alignment misses.
+> Linear translation maps between controller state trajectories explain 89% of cross-controller variance (R²=0.888), significantly exceeding raw element-wise alignment (0.493). Reward is excluded from the composite score.
 
-Evidence: 0.437 translated vs 0.000 raw; consistent across 10 pairs; structural, not behavioral.
+Evidence: 14-dimensional state vectors (position, heading, target, actions, ascending features). Strongest gains on dissimilar pairs (planner↔reflex raw=0.21→translated=0.89). Reward excluded to prevent environment-imposed inflation. Equal-length episodes.
+
+**Caveat**: Environment dynamics may act as an implicit forced translator. 64 samples for 14-dim regression is adequate but not overwhelming. One trivially identical pair (reflex↔raw_control) inflates the mean.
 
 ### C. Seam fragility law → **PROMOTED** (near_theorem_candidate)
 
@@ -91,7 +93,7 @@ Evidence: broken seams → 100% stability loss + reward improvement; local metri
 | Finding | Tier | Justification |
 |---------|------|---------------|
 | Ascending loop matters | **Strong → Promoted** | Survives ablation, different collapse signatures, transfers |
-| Controller interoperability | **Strong → Promoted** | 0.437 gap, consistent across pairs, transfers |
+| Controller interoperability | **Strong → Promoted** | R²=0.888 translated vs 0.493 raw, reward excluded, consistent across 10 pairs |
 | Seam fragility law | **Strong → Promoted** | Local metrics mislead, seam metrics predict failure |
 | History dependence | **Useful** | Clear signal (memory 0.82 vs random 0.03), survives transfer across 3 worlds |
 | Self/world separation | **Useful** | Signal exists (0.077 vs 0.061 baselines) but weak; needs harsher protocol |

@@ -99,27 +99,36 @@ This report summarizes what the 10-stage validation program found about each can
 
 ## 5. Controller Interoperability Role
 
-**Status**: CONFIRMED — strongest finding
+**Status**: CONFIRMED — strong finding (methodology corrected)
 
-**What we tested**: Stage 7 computed translated vs. raw alignment across 10 controller pairs in the same world.
+**What we tested**: Stage 7 trained linear translation maps T: z_a → z_b between 14-dimensional state vectors across 10 controller pairs (5 controllers, same world, equal-length episodes of 64 steps). Reward was deliberately excluded from the composite score.
 
 **What we found**:
-- Mean translated alignment: 0.437
-- Mean raw alignment: 0.000
-- Gap: 0.437 (threshold was 0.10)
-- Highest pair: reflex_only vs raw_control (0.500)
-- Lowest pair: memory vs reflex_only (0.389)
+- Mean translated alignment (linear map R²): 0.888
+- Mean raw alignment (element-wise correlation): 0.493
+- Gap: 0.394 (threshold was 0.05 gap + 0.15 absolute)
+- Strongest translation gains on dissimilar pairs:
+  - planner ↔ reflex_only: raw=0.210 → translated=0.891 (+0.681)
+  - planner ↔ raw_control: raw=0.309 → translated=0.902 (+0.593)
+  - memory ↔ raw_control: raw=0.296 → translated=0.883 (+0.588)
+- Similar pairs show expected high raw alignment: reduced_descending ↔ memory raw=0.985
 
-**Interpretation**: Controllers that use completely different internal mechanisms (reflexive, memory-augmented, planning-based, raw control) nonetheless converge on similar task solutions. The convergence is in outcome/reward space, not in latent state space (raw correlation = 0.000). This means there is genuine task structure that any adequate controller must respect.
+**Previous overclaim corrected**: The original metric used reward correlation as "translated alignment" (0.437 vs 0.000). This measured environment-imposed outcome similarity, not true latent translation. Reward is a global scalar shared by design — it always inflates agreement. The corrected metric uses 14-dimensional state vectors (position, heading, target, actions, ascending features) with learned linear OLS translation maps.
 
-**Promoted wording**: Translated controller alignment reveals shared structure that raw alignment misses.
+**Interpretation**: Controllers with completely different internal mechanisms produce state trajectories that are linearly translatable with high fidelity (R²=0.89). The translation gain is largest for dissimilar pairs, suggesting real shared structure beyond behavioral similarity.
+
+**Hidden insight — environment as implicit translation operator**: The environment may act as a "forced translator" — constraining different controllers into similar state spaces. Controllers don't align internally, but world dynamics compress behavior into translatable patterns. This suggests `environment ≈ implicit translation operator`. This is itself a valuable finding worth investigating.
+
+**Promoted wording**: Linear translation maps between controller state trajectories explain 89% of cross-controller variance (R²=0.888), significantly exceeding raw element-wise alignment (0.493). Reward is excluded from the composite score.
 
 **Caveats**:
-- Tested only in avatar_remapped world
-- No RL controller tested
-- Interop metric includes reward trajectory similarity, which may dominate
+- 64 samples for 14-dim regression (ratio 4.6:1) — overfitting risk; needs cross-validation
+- One trivially identical pair (reflex_only ↔ raw_control) inflates the mean
+- Single world tested (avatar_remapped) — no cross-world interop yet
+- All hand-designed controllers — no RL-trained controllers tested
+- Environment-mediated alignment may partly explain the high R²
 
-**Confidence**: High
+**Confidence**: Medium-High (methodology is now sound; environment-mediation hypothesis needs further investigation)
 
 ---
 

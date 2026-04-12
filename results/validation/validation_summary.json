@@ -62,12 +62,12 @@
       }
     },
     "Stage 7: Interoperability": {
-      "passed": "True",
+      "passed": true,
       "status": "pass",
       "details": {
-        "mean_raw": 0.0,
-        "mean_trans": 0.4371698270761069,
-        "gap": 0.4371698270761069
+        "mean_raw": 0.4934098572452152,
+        "mean_trans": 0.8877799320767561,
+        "gap": 0.3943700748315409
       }
     },
     "Stage 8: Seam Stress": {

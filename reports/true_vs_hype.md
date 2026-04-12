@@ -15,11 +15,13 @@
 - This is a real, reproducible, falsifiable finding across 10 seeds with zero variance
 - **Caveat**: In BodylessBodyLayer, "stability" is computed from pose features — so this is partly circular. Needs MuJoCo validation.
 
-### 3. Controllers share task structure even when behavior differs
-- Translated interoperability score: 0.437 mean across 10 pairs
-- Raw latent correlation: 0.000 across all pairs
-- Controllers that solve the same task develop similar reward trajectories and action distributions even with completely different internal mechanisms
-- **This is a genuine structural finding.**
+### 3. Linear translation maps reveal shared controller structure
+- Translated alignment (linear map R²): 0.888 mean across 10 pairs
+- Raw element-wise alignment: 0.493 mean across 10 pairs
+- 14-dimensional state vectors (position, heading, target, actions, ascending features). Reward excluded from composite.
+- Strongest translation gains on dissimilar pairs: planner↔reflex_only raw=0.21→translated=0.89
+- **This is a genuine structural finding — but environment dynamics may act as an implicit forced translator.**
+- **Previous overclaim corrected**: Old metric used reward correlation as "translated alignment" (0.437 vs 0.000). This measured environment-imposed outcome similarity. New metric uses real multi-dimensional state trajectories with linear OLS translation maps.
 
 ### 4. Seam perturbation reveals failures that local metrics miss
 - Breaking pose+locomotion channels: reward improves by 26.05, but stability drops 100%
@@ -46,10 +48,11 @@
 - Other channels (locomotion quality, contact, target, phase) are structurally redundant for stability
 - This suggests a priority hierarchy in ascending feedback that mirrors biological sensory processing
 
-### 2. Interoperability is achievable through task structure
-- Different controller families (reflexive, memory-augmented, planning-based, raw) all converge on similar task solutions
-- The convergence is in outcome space, not behavior space — controllers act differently but achieve similarly
-- This suggests the task itself imposes structural constraints that any adequate controller must satisfy
+### 2. Translation reveals structure beyond raw similarity
+- Different controller families (reflexive, memory-augmented, planning-based, raw) share latent structure accessible through linear translation maps (R²=0.888) that raw element-wise comparison misses (0.493)
+- The strongest gains appear on dissimilar pairs: planner↔reflex (raw=0.21→translated=0.89), memory↔raw_control (raw=0.30→translated=0.88)
+- **Hidden insight**: The environment may act as an implicit translation operator — constraining different controllers into similar state spaces. This is itself a valuable discovery worth investigating further.
+- **Open question**: Does the linear map capture genuine shared structure, or is it overfitting with 64 samples on 14 dimensions? Cross-validation and cross-world transfer needed.
 
 ### 3. Stress reveals structural degradation that metrics miss
 - Pose ablation causes internal objectness to drop (0.656→0.484) while shared similarity rises (0.586→0.898)
@@ -98,7 +101,7 @@
 |-------|---------|------------|
 | Architecture works | **TRUE** | High |
 | Ascending loop matters | **TRUE (with caveat)** | Medium-High |
-| Controller interop is real | **TRUE** | High |
+| Controller translation maps | **TRUE (with caveats)** | Medium-High |
 | Seam law holds | **TRUE** | High |
 | History dependence | **TRUE (after metric fix)** | Medium |
 | Self/world separation | **WEAK BUT REAL** | Low-Medium |

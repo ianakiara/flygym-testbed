@@ -37,30 +37,40 @@
 
 ---
 
-### CLM-002: Controller interoperability produces translatable shared structure
+### CLM-002: Linear translation maps reveal shared controller structure beyond raw similarity
 
 **Status**: PROMOTED (strong_repo_result)
 **Experiment**: Stage 7 — Controller interoperability validation
 **Evidence**:
-- Translated alignment mean: 0.437
-- Raw alignment mean: 0.000
-- Gap: 0.437 (threshold was 0.10)
-- Tested across 10 controller pairs (5 controllers)
-- Highest interop: reflex_only vs raw_control (0.500), reduced_descending vs memory (0.499)
-- Lowest interop: reflex_only vs memory (0.389)
+- Translated alignment (linear map R²) mean: 0.888
+- Raw alignment (element-wise correlation) mean: 0.493
+- Gap: 0.394 (threshold was 0.05 gap + 0.15 absolute)
+- Tested across 10 controller pairs (5 controllers), all running exactly 64 steps
+- State vector: 14-dimensional (position, heading, target_vector, actions, distance, body_speed, locomotion_quality, actuator_effort, phase, phase_velocity)
+- Reward deliberately excluded from composite score to prevent environment-imposed inflation
+- Strongest translation gains on dissimilar pairs:
+  - planner vs reflex_only: raw=0.210 → translated=0.891 (+0.681)
+  - planner vs raw_control: raw=0.309 → translated=0.902 (+0.593)
+  - memory vs raw_control: raw=0.296 → translated=0.883 (+0.588)
+- Similar pairs show expected high raw alignment: reduced_descending vs memory raw=0.985, translated=0.999
 
-**Ablations survived**: Different controller families (rule-based, memory-augmented, planner, raw)
-**Negative controls**: Raw correlation is 0.000 — controllers share NO surface-level latent structure
-**Failure modes**: Interop score is driven by reward trajectory similarity; controllers that solve the same task share structure
-**Strongest falsifier**: If random vs. structured controllers showed equal interop, the finding would be trivial
-**Next experiment**: Test with learned representations (RL controller) to see if interop holds with trained policies
-**Risk if wrong**: Interop score may measure task similarity rather than true representational alignment
+**Previous overclaim**: Old metric used reward correlation as "translated alignment" (0.437 vs 0.000). This measured environment-imposed outcome similarity, not true structural translation between controller representations.
+**Fix applied**: (1) Built real 14-dimensional state vectors from world observables + actions + ascending features. (2) Trained linear maps T: z_a → z_b via OLS. (3) Removed reward from composite. (4) Equalized episode lengths (planner was only running 10 steps).
+**Ablations survived**: Different controller families (rule-based, memory-augmented, planner, raw, reflex-only)
+**Negative controls**: Raw alignment is moderate (0.493) — controllers share some trajectory structure but translation maps capture significantly more
+**Failure modes**: Reflex_only and raw_control are behaviorally identical (both produce zero actions), giving trivial R²=1.0 for that pair
+**Strongest falsifier**: If a random permutation of state vectors gave equal R², the translation would be meaningless. If non-linear maps significantly beat linear, the "shared structure" may be an artifact of over-fitting.
+**Next experiment**: (1) Cross-world interop (train translation in avatar, test in simplified). (2) RL controller for non-hand-designed comparison. (3) Non-linear maps (kernel regression) to check if linear is sufficient. (4) Leave-one-out cross-validation on translation R² to prevent overfitting.
+**Risk if wrong**: With only 64 time-steps and 14 dimensions, linear regression may overfit. The reflex_only↔raw_control pair inflates the mean. Environment dynamics may act as an implicit "forced translator" — controllers appear to share structure only because the world constrains them similarly.
 **Caveats**:
-- All controllers tested in same world (avatar_remapped)
-- Interop metric combines reward correlation and action distribution similarity
-- No cross-world interop tested yet
+- All controllers tested in same world (avatar_remapped) — no cross-world interop yet
+- 64 samples for 14-dimensional regression is adequate but not overwhelming (ratio 4.6:1)
+- Reward correlation is still high (0.50–1.00) but is now correctly excluded from the score
+- One pair (reflex_only vs raw_control) is trivially identical, inflating the mean
 
-**Suggested wording**: Translated controller alignment reveals shared structure that raw alignment misses.
+**Suggested wording**: Linear translation maps between controller state trajectories explain 89% of cross-controller variance (R²=0.888), significantly exceeding raw element-wise alignment (0.493). This suggests controllers share latent structure that is accessible through translation but not through direct comparison.
+
+**Hidden insight**: The environment may act as an implicit translation operator — constraining different controllers into similar outcome spaces. This is itself a valuable finding: environment-mediated structural alignment is a real phenomenon worth investigating further.
 
 ---
 

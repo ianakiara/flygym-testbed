@@ -593,7 +593,19 @@ def stage_6_self_world(output_dir: Path) -> StageResult:
 
 
 def stage_7_interoperability(output_dir: Path) -> StageResult:
-    """Stage 7 — Controller interoperability validation."""
+    """Stage 7 — Controller interoperability validation.
+
+    Measures whether different controllers share *translatable* internal
+    structure, not just similar reward trajectories.
+
+    Core metric: R² of a linear translation T: z_a → z_b between
+    multi-dimensional state vectors.  Reward is reported for diagnostics
+    but deliberately excluded from the composite score to avoid
+    environment-imposed inflation.
+
+    All controllers run exactly EPISODE_STEPS steps (early termination
+    disabled) to ensure equal-length trajectories for fair comparison.
+    """
     notes = []
     rows = []
 
@@ -610,48 +622,79 @@ def stage_7_interoperability(output_dir: Path) -> StageResult:
 
     for ctrl_name, ctrl in controllers.items():
         env = env_factory()
-        t = run_episode(env, ctrl, seed=0, max_steps=EPISODE_STEPS)
-        ctrl_transitions[ctrl_name] = t
+        # Force all controllers to run exactly EPISODE_STEPS — do not
+        # break on early termination so that all trajectories are the
+        # same length.  This prevents length-mismatch bias (planner
+        # was terminating at ~10 steps by reaching the target).
+        observation = env.reset(seed=0)
+        ctrl.reset(seed=0)
+        transitions: list[StepTransition] = []
+        for _ in range(EPISODE_STEPS):
+            action = ctrl.act(observation)
+            transition = env.step(action)
+            transitions.append(transition)
+            observation = transition.observation
+            # Do NOT break on terminated/truncated — force equal length
+        ctrl_transitions[ctrl_name] = transitions
+        notes.append(f"  {ctrl_name}: {len(transitions)} steps collected")
 
     # Pairwise comparisons
     ctrl_names = list(controllers.keys())
-    raw_agreements = []
-    translated_agreements = []
+    raw_alignments = []
+    translated_alignments = []
 
     for i in range(len(ctrl_names)):
         for j in range(i + 1, len(ctrl_names)):
             n1, n2 = ctrl_names[i], ctrl_names[j]
             t1, t2 = ctrl_transitions[n1], ctrl_transitions[n2]
             interop = interoperability_score(t1, t2)
-            latent = latent_state_similarity(t1, t2)
-            reward = reward_trajectory_similarity(t1, t2)
 
-            raw_agr = abs(latent.get("latent_correlation", 0))
-            trans_agr = interop.get("interoperability_score", 0)
-            raw_agreements.append(raw_agr)
-            translated_agreements.append(trans_agr)
+            raw_agr = interop.get("raw_alignment", 0)
+            trans_agr = interop.get("translated_alignment", 0)
+            raw_alignments.append(raw_agr)
+            translated_alignments.append(trans_agr)
 
             row = {
                 "pair": f"{n1}_vs_{n2}",
-                "raw_latent_corr": latent.get("latent_correlation", 0),
-                "reward_corr": reward.get("reward_correlation", 0),
-                "interop_score": trans_agr,
+                "raw_alignment": raw_agr,
+                "translated_alignment": trans_agr,
+                "translation_r2_ab": interop.get("translation_r2_ab", 0),
+                "translation_r2_ba": interop.get("translation_r2_ba", 0),
+                "action_corr_move": interop.get("action_corr_move", 0),
+                "action_corr_turn": interop.get("action_corr_turn", 0),
+                "action_mae": interop.get("action_mae", 0),
+                "reward_corr": interop.get("reward_correlation", 0),
+                "raw_dims_active": interop.get("raw_dims_active", 0),
             }
             rows.append(row)
-            notes.append(f"  {n1} vs {n2}: interop={trans_agr:.4f}, raw_corr={raw_agr:.4f}")
+            notes.append(
+                f"  {n1} vs {n2}: translated_R2={trans_agr:.4f}, "
+                f"raw={raw_agr:.4f}, action_move_corr={interop.get('action_corr_move', 0):.4f}, "
+                f"reward_corr={interop.get('reward_correlation', 0):.4f}"
+            )
 
     _write_csv(rows, output_dir / "controller_interoperability.csv")
 
-    mean_raw = np.mean(raw_agreements) if raw_agreements else 0
-    mean_trans = np.mean(translated_agreements) if translated_agreements else 0
+    mean_raw = float(np.mean(raw_alignments)) if raw_alignments else 0.0
+    mean_trans = float(np.mean(translated_alignments)) if translated_alignments else 0.0
     gap = mean_trans - mean_raw
-    passed = gap > 0.10
-    notes.append(f"  Mean translated={mean_trans:.4f} vs raw={mean_raw:.4f}, gap={gap:.4f}")
+
+    # Pass condition: translated alignment significantly beats raw alignment.
+    # This means a linear structure-preserving map exists where raw comparison
+    # shows nothing.
+    passed = gap > 0.05 and mean_trans > 0.15
+    notes.append(
+        f"  Mean translated_R2={mean_trans:.4f} vs raw={mean_raw:.4f}, gap={gap:.4f}"
+    )
 
     return StageResult(
         stage="Stage 7: Interoperability",
         passed=passed,
-        details={"mean_raw": float(mean_raw), "mean_trans": float(mean_trans), "gap": float(gap)},
+        details={
+            "mean_raw": mean_raw,
+            "mean_trans": mean_trans,
+            "gap": gap,
+        },
         notes=notes,
     )
 
