@@ -90,7 +90,7 @@ def safe_compression_score(
                 {name: by_world[world_a][name] for name in common},
                 {name: by_world[world_b][name] for name in common},
             )
-            divergences.append(divergence["mean_divergence"])
+            divergences.append(divergence.get("mean_reward_divergence", divergence.get("mean_divergence", 0.0)))
     scale_drift = float(np.mean(divergences)) if divergences else 0.0
 
     compression = compression_gain(len(members), 1)

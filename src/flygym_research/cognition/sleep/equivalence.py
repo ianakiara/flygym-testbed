@@ -61,7 +61,22 @@ def _success_signature(episode: TraceEpisode) -> bool:
 
 def _cluster_key(
     episode: TraceEpisode,
-) -> tuple[str, str, tuple[str, ...], bool]:
+    *,
+    cross_world: bool = False,
+) -> tuple:
+    """Build a grouping key for equivalence classification.
+
+    When *cross_world* is True the ``world_mode`` is dropped from the key
+    so that episodes from different worlds can be grouped together.  This
+    activates the ``scale_drift`` safety gate in
+    :func:`scoring.safe_compression_score`.
+    """
+    if cross_world:
+        return (
+            episode.perturbation_tag,
+            episode.ablation_channels,
+            _success_signature(episode),
+        )
     return (
         episode.world_mode,
         episode.perturbation_tag,
@@ -75,10 +90,11 @@ def build_equivalence_classes(
     episodes: list[TraceEpisode],
     *,
     min_equivalence_strength: float = 0.55,
+    cross_world: bool = False,
 ) -> list[list[TraceEpisode]]:
-    grouped: dict[tuple[str, str, tuple[str, ...], bool], list[TraceEpisode]] = defaultdict(list)
+    grouped: dict[tuple, list[TraceEpisode]] = defaultdict(list)
     for episode in episodes:
-        grouped[_cluster_key(episode)].append(episode)
+        grouped[_cluster_key(episode, cross_world=cross_world)].append(episode)
 
     classes: list[list[TraceEpisode]] = []
     for group in grouped.values():
@@ -119,6 +135,7 @@ def candidate_from_cluster(cluster: list[TraceEpisode]) -> SleepCandidate:
         )
     evidence: dict[str, Any] = {
         "cluster_size": len(cluster),
+        "world_modes": sorted(set(ep.world_mode for ep in cluster)),
         "world_mode": representative.world_mode,
         "perturbation_tag": representative.perturbation_tag,
         "pairwise_scores": pairwise_scores,
@@ -145,11 +162,13 @@ def extract_sleep_candidates(
     episodes: list[TraceEpisode],
     *,
     min_equivalence_strength: float = 0.55,
+    cross_world: bool = False,
 ) -> list[SleepCandidate]:
     return [
         candidate_from_cluster(cluster)
         for cluster in build_equivalence_classes(
             episodes,
             min_equivalence_strength=min_equivalence_strength,
+            cross_world=cross_world,
         )
     ]

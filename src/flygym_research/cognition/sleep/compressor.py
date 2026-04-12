@@ -19,6 +19,7 @@ class CompressionConfig:
     max_seam_risk: float = 0.25
     max_interop_loss: float = 0.45
     max_scale_drift: float = 0.35
+    cross_world: bool = False
 
 
 
@@ -39,6 +40,7 @@ def compress_trace_bank(
     candidates = extract_sleep_candidates(
         episodes,
         min_equivalence_strength=config.min_equivalence_strength,
+        cross_world=config.cross_world,
     )
 
     compressed_episode_ids: list[str] = []

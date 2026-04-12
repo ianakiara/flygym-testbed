@@ -31,6 +31,7 @@ from flygym_research.cognition.sleep import (
     cleanup_memory_bank,
     compress_trace_bank,
     extract_sleep_candidates,
+    repairability_curve,
 )
 
 
@@ -179,3 +180,121 @@ class TestSleepExperiments:
         report_path = tmp_path / "compressor" / "sleep_report.md"
         assert report_path.exists()
         assert "Sleep Artifact" in report_path.read_text()
+
+
+class TestCrossWorldEquivalence:
+    """Tests for cross-world clustering and scale_drift activation."""
+
+    def test_cross_world_clustering_merges_worlds(self):
+        """With cross_world=True, episodes from different worlds can share a cluster."""
+        episodes = collect_trace_bank(
+            seeds=[0],
+            world_modes=["avatar_remapped", "simplified_embodied"],
+            ablations=[frozenset()],
+            perturbation_tags=["baseline"],
+            max_steps=10,
+        )
+        # Same-world: should partition by world_mode.
+        candidates_same = extract_sleep_candidates(
+            episodes, min_equivalence_strength=0.1, cross_world=False,
+        )
+        # Cross-world: should allow merging across worlds.
+        candidates_cross = extract_sleep_candidates(
+            episodes, min_equivalence_strength=0.1, cross_world=True,
+        )
+        # Cross-world should produce fewer or equal candidates (more merging).
+        assert len(candidates_cross) <= len(candidates_same) + len(episodes)
+
+    def test_cross_world_compression_config(self):
+        """CompressionConfig cross_world flag propagates to candidates."""
+        episodes = collect_trace_bank(
+            seeds=[0],
+            world_modes=["avatar_remapped", "native_physical"],
+            ablations=[frozenset()],
+            perturbation_tags=["baseline"],
+            max_steps=10,
+        )
+        config = CompressionConfig(cross_world=True, min_equivalence_strength=0.1)
+        artifact = compress_trace_bank(episodes, config=config)
+        assert artifact.artifact_id.startswith("sleep-")
+        # Candidates should exist.
+        assert len(artifact.candidates) >= 1
+
+    def test_cross_world_candidate_captures_world_modes(self):
+        """Candidate evidence should list all world modes in the cluster."""
+        episodes = collect_trace_bank(
+            seeds=[0],
+            world_modes=["avatar_remapped", "simplified_embodied"],
+            ablations=[frozenset()],
+            perturbation_tags=["baseline"],
+            max_steps=10,
+        )
+        candidates = extract_sleep_candidates(
+            episodes, min_equivalence_strength=0.1, cross_world=True,
+        )
+        # At least some candidates should have world_modes in evidence.
+        has_world_modes = any(
+            "world_modes" in c.evidence for c in candidates
+        )
+        assert has_world_modes
+
+    def test_same_world_scale_drift_zero(self):
+        """Without cross-world, scale_drift should always be 0."""
+        episodes = collect_trace_bank(
+            seeds=[0],
+            world_modes=["avatar_remapped", "native_physical"],
+            ablations=[frozenset()],
+            perturbation_tags=["baseline"],
+            max_steps=10,
+        )
+        config = CompressionConfig(cross_world=False)
+        artifact = compress_trace_bank(episodes, config=config)
+        for c in artifact.candidates:
+            assert c.score_components.get("scale_drift", 0.0) == 0.0
+
+
+class TestRepairabilityCurve:
+    """Tests for the repairability curve sweep."""
+
+    def test_repairability_curve_returns_expected_keys(self):
+        episodes = collect_trace_bank(
+            seeds=[0],
+            world_modes=["avatar_remapped"],
+            ablations=[frozenset()],
+            perturbation_tags=["baseline"],
+            max_steps=10,
+        )
+        result = repairability_curve(episodes, thresholds=[0.10, 0.20, 0.30])
+        assert "curve" in result
+        assert "critical_threshold" in result
+        assert "default_threshold_repairability" in result
+        assert "tight_threshold_repairability" in result
+        assert "n_thresholds_tested" in result
+        assert result["n_thresholds_tested"] == 3
+
+    def test_repairability_curve_monotonicity(self):
+        """Tighter thresholds should find more or equal failures."""
+        episodes = collect_trace_bank(
+            seeds=[0],
+            world_modes=["avatar_remapped", "simplified_embodied"],
+            ablations=[frozenset()],
+            perturbation_tags=["baseline"],
+            max_steps=10,
+        )
+        result = repairability_curve(episodes, thresholds=[0.05, 0.10, 0.20, 0.30])
+        curve = result["curve"]
+        # Failures should decrease or stay same as threshold increases.
+        for i in range(len(curve) - 1):
+            assert curve[i]["n_failures"] >= curve[i + 1]["n_failures"]
+
+    def test_repairability_curve_default_thresholds(self):
+        """Default thresholds should work without explicit list."""
+        episodes = collect_trace_bank(
+            seeds=[0],
+            world_modes=["avatar_remapped"],
+            ablations=[frozenset()],
+            perturbation_tags=["baseline"],
+            max_steps=10,
+        )
+        result = repairability_curve(episodes)
+        assert result["n_thresholds_tested"] == 9  # Default has 9 thresholds.

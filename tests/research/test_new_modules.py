@@ -47,6 +47,7 @@ from flygym_research.cognition.metrics import (
 )
 from flygym_research.cognition.tasks import (
     DelayedRewardTask,
+    HiddenCueRecallTask,
     HistoryDependenceTask,
     NavigationTask,
     SelfWorldDisambiguationTask,
@@ -320,6 +321,50 @@ class TestHistoryDependenceTask:
         assert ws.mode == "history_dependence_task"
         assert "waypoints" in ws.observables
         assert "visited" in ws.observables
+
+
+class TestHiddenCueRecallTask:
+    def test_reset_and_step(self):
+        task = HiddenCueRecallTask()
+        raw = _make_raw_feedback()
+        summary = _make_summary()
+        ws = task.reset(seed=0, raw_feedback=raw, summary=summary)
+        assert ws.mode == "hidden_cue_recall_task"
+        assert "cue_signal" in ws.observables
+        assert "cue_visible" in ws.observables
+        assert ws.observables["cue_visible"] is True
+
+    def test_cue_disappears_after_visible_steps(self):
+        config = EnvConfig(episode_steps=20, success_radius_mm=0.001)
+        task = HiddenCueRecallTask(config=config, cue_visible_steps=2)
+        raw = _make_raw_feedback()
+        summary = _make_summary()
+        task.reset(seed=0, raw_feedback=raw, summary=summary)
+
+        cue_visible_flags = []
+        for _ in range(6):
+            ws = task.step(DescendingCommand(), raw, summary)
+            cue_visible_flags.append(ws.observables["cue_visible"])
+
+        # Cue should be visible for first 2 steps, then hidden.
+        assert cue_visible_flags[0] is True
+        assert cue_visible_flags[1] is True
+        assert cue_visible_flags[2] is False
+
+    def test_cue_signal_becomes_ambiguous(self):
+        config = EnvConfig(episode_steps=20, success_radius_mm=0.001)
+        task = HiddenCueRecallTask(config=config, cue_visible_steps=2)
+        raw = _make_raw_feedback()
+        summary = _make_summary()
+        task.reset(seed=0, raw_feedback=raw, summary=summary)
+
+        signals = []
+        for _ in range(5):
+            ws = task.step(DescendingCommand(), raw, summary)
+            signals.append(ws.observables["cue_signal"])
+
+        # After cue disappears, signal should be 0.5 (ambiguous).
+        assert signals[2] == 0.5  # step 3 > cue_visible_steps=2
 
 
 # ─── MemoryController ─────────────────────────────────────────────────

@@ -11,7 +11,7 @@ from .memory_closure import build_memory_packets
 from .reporting import artifact_summary, sleep_artifact_to_markdown
 from .residuals import select_residual_exceptions
 from .scoring import residual_score, safe_compression_score
-from .seam_repair import analyze_seam_failures
+from .seam_repair import analyze_seam_failures, repairability_curve
 from .trace_schema import SleepArtifact, SleepCandidate, TraceEpisode, TraceSegment
 from .trace_store import TraceStore
 
@@ -31,6 +31,7 @@ __all__ = [
     "collect_segments",
     "compress_trace_bank",
     "extract_sleep_candidates",
+    "repairability_curve",
     "residual_score",
     "safe_compression_score",
     "segment_episode",
