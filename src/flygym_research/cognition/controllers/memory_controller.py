@@ -122,3 +122,19 @@ class MemoryController(BrainInterface):
             "step_count": float(self._step_count),
             "gate_decay": self.gate_decay,
         }
+
+    def intervene_state(self, delta: float | np.ndarray) -> None:
+        """Surgically perturb the hidden state by *delta*.
+
+        Used for causal intervention experiments — shifts the hidden state
+        by a known amount to measure downstream behavioural divergence.
+        """
+        self._hidden = self._hidden + np.asarray(delta, dtype=np.float64)
+
+    def shuffle_state(self, rng: np.random.Generator) -> None:
+        """Randomly shuffle the hidden state dimensions.
+
+        Used for epiphenomenal testing — if shuffling the hidden state
+        has no effect on behaviour, the state is decorative.
+        """
+        rng.shuffle(self._hidden)

@@ -60,7 +60,7 @@ def _run_with_intervention(seed: int, delta: float = 0.5) -> list:
     for step in range(_EPISODE_STEPS):
         if step == midpoint:
             # Surgical intervention: shift hidden state.
-            ctrl._hidden += delta
+            ctrl.intervene_state(delta)
         action = ctrl.act(obs)
         t = env.step(action)
         transitions.append(t)
@@ -79,7 +79,7 @@ def _run_state_shuffle(seed: int) -> list:
     obs = env.reset(seed=seed)
     transitions = []
     for _ in range(_EPISODE_STEPS):
-        rng.shuffle(ctrl._hidden)
+        ctrl.shuffle_state(rng)
         action = ctrl.act(obs)
         t = env.step(action)
         transitions.append(t)

@@ -81,10 +81,9 @@ def causal_influence_score(
     normalised = float(np.clip(raw_influence / safe_mag, 0.0, 1.0))
 
     # Proportionality: if we double the intervention, does divergence
-    # roughly double?  Measured as ratio / expected_ratio clamped to [0,1].
-    # For a single measurement, proportionality = influence / magnitude
-    # (perfect proportionality = 1.0).
-    proportionality = float(np.clip(raw_influence / safe_mag, 0.0, 1.0))
+    # roughly double?  For a single measurement, proportionality is the
+    # same as the normalised influence (perfect proportionality = 1.0).
+    proportionality = normalised
 
     return {
         "causal_influence": normalised,
