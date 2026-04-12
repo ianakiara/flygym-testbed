@@ -1,0 +1,89 @@
+{
+  "total_stages": 10,
+  "passed": 6,
+  "failed": 4,
+  "stages": {
+    "Stage 1: Sanity": {
+      "passed": true,
+      "details": {
+        "checks_passed": 20,
+        "checks_total": 20
+      }
+    },
+    "Stage 2: Baseline Truth": {
+      "passed": "True",
+      "details": {
+        "reduced_mean": 9.20053240001126,
+        "reflex_mean": -121.98812932422271,
+        "gap": 131.18866172423398
+      }
+    },
+    "Stage 3: Body Substrate": {
+      "passed": false,
+      "details": {
+        "wins_by_world": {
+          "simplified/reduced_descending": 0,
+          "simplified/raw_control": 0,
+          "avatar/reduced_descending": 0,
+          "avatar/raw_control": 1
+        },
+        "worlds_with_3plus": 0
+      }
+    },
+    "Stage 4: Ascending Loop": {
+      "passed": true,
+      "details": {
+        "significant_drops": [
+          "no_pose",
+          "all_off"
+        ]
+      }
+    },
+    "Stage 5: History Dependence": {
+      "passed": false,
+      "details": {
+        "memory_hist": 0.008371063201458532,
+        "random_hist": 0.2908797562002535,
+        "gap": -0.282508692998795
+      }
+    },
+    "Stage 6: Self/World": {
+      "passed": false,
+      "details": {
+        "rd_sw": -0.02906446491582454,
+        "baseline_max": 0.029199382732572304
+      }
+    },
+    "Stage 7: Interoperability": {
+      "passed": "True",
+      "details": {
+        "mean_raw": 0.0,
+        "mean_trans": 0.4371698270761069,
+        "gap": 0.4371698270761069
+      }
+    },
+    "Stage 8: Seam Stress": {
+      "passed": true,
+      "details": {
+        "seam_predicts_failure": true
+      }
+    },
+    "Stage 9: Shared Objectness": {
+      "passed": "False",
+      "details": {
+        "mean_internal": 0.5846560846560847,
+        "mean_shared": 0.5858258553917228,
+        "gap": 0.001169770735638176
+      }
+    },
+    "Stage 10: Transfer": {
+      "passed": true,
+      "details": {
+        "surviving_findings": [
+          "stability",
+          "persistence"
+        ]
+      }
+    }
+  }
+}

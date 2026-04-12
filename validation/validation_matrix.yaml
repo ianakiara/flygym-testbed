@@ -1,0 +1,99 @@
+# Validation Matrix — frozen before any experiments run.
+# Do NOT modify thresholds after seeing results.
+
+environments:
+  - native_world
+  - simplified_body_world
+  - avatar_world
+  - dual_world_transfer
+
+controllers:
+  - reflex_only
+  - raw_control
+  - reduced_descending
+  - memory_augmented
+  - planner_augmented
+  - bodyless_agent
+  - no_ascending_feedback
+  - random
+
+ablations:
+  - no_ascending_feedback     # all ascending channels zeroed
+  - no_internal_state         # internal channel zeroed
+  - no_memory                 # memory buffer cleared each step
+  - no_stabilization          # pose channel zeroed
+  - shuffled_history          # history buffer randomised
+  - sensor_dropout            # 50% of features randomly zeroed
+  - latency_injection         # ascending feedback delayed 3 steps
+  - world_remap_noise         # extra noise on world observations
+  - broken_seam_adapter       # descending adapter output corrupted
+
+seeds:
+  fast: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+  heavy: [0, 1, 2, 3, 4]
+
+episode_steps:
+  fast: 64
+  heavy: 128
+
+result_groups:
+  - performance       # return, mean_reward, success
+  - stability         # stability_mean, stability_min
+  - persistence       # state_autocorrelation, mi, decay
+  - self_world        # self_world_marker
+  - history           # history_dependence, hysteresis
+  - interoperability  # interop_score, latent_corr
+  - seam_fragility    # seam_fragility
+  - shared_objectness # shared_objectness_score
+
+pass_thresholds:
+  # Stage 2: baseline truth
+  baseline_nontrivial_gap: 0.05  # reduced_descending must beat reflex_only by this margin on >=1 metric
+  
+  # Stage 3: body substrate value
+  body_structure_metrics_win_count: 3   # body must beat bodyless on >=3 of 4 structure metrics
+  body_worlds_win_count: 2              # across >=2 worlds
+  
+  # Stage 4: ascending loop
+  ascending_ablation_stability_drop: 0.10   # >=10% drop on stability or self_world
+  
+  # Stage 5: history dependence
+  history_prediction_improvement: 0.05      # history-aware must beat state-only by >=5%
+  
+  # Stage 6: self/world disambiguation
+  self_world_beats_baselines: true          # must beat reflex_only, bodyless, random
+  
+  # Stage 7: controller interoperability
+  translated_beats_raw_alignment: 0.10      # translated alignment must beat raw by >=10%
+  
+  # Stage 8: seam stress
+  seam_predicts_failure_better: true        # seam metrics must outpredict local metrics
+  
+  # Stage 9: shared objectness
+  shared_beats_internal: 0.05               # shared objectness must beat plain internal by >=5%
+  
+  # Stage 10: transfer
+  min_surviving_findings: 1                 # at least 1 finding must transfer
+
+fail_thresholds:
+  # Conditions that invalidate results
+  random_matches_experimental: 0.02    # if random is within 2% of experimental, result invalid
+  reflex_solves_task: 0.90             # if reflex_only success rate >=90%, task is trivial
+  bodyless_dominates_all: true         # if bodyless beats body on ALL metrics, body claim fails
+  no_channel_hierarchy: true           # if all ablations equally degrade, no hierarchy exists
+
+promotion_rules:
+  useful:
+    - beats simpler baseline
+    - survives at least one ablation
+    - reproducible across seeds (std/mean < 0.5)
+  strong:
+    - survives multiple task types
+    - survives controller/world swaps
+    - interpretable failure modes documented
+  promoted:
+    - cross-condition robust
+    - negative controls fail correctly
+    - not explainable by one trivial shortcut
+    - failure modes understood
+    - simpler explanations ruled out

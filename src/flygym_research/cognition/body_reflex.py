@@ -196,6 +196,33 @@ class BodylessBodyLayer(BodyInterface):
         self.phase = 0.0
         self._position = np.zeros(3, dtype=np.float64)
 
+    def _apply_channel_ablation(
+        self, features: dict[str, float],
+    ) -> tuple[dict[str, float], tuple[str, ...], tuple[str, ...]]:
+        """Zero out features belonging to disabled channel groups.
+
+        Uses the same channel group mapping as
+        :class:`~.adapters.ascending_adapter.AscendingAdapter` so that
+        ablation behaviour is consistent between bodyless and embodied
+        body layers.
+        """
+        from .adapters.ascending_adapter import CHANNEL_GROUPS
+
+        disabled = set(self.config.disabled_feedback_channels)
+        if disabled:
+            disabled_keys: set[str] = set()
+            for group in disabled:
+                if group in CHANNEL_GROUPS:
+                    disabled_keys |= CHANNEL_GROUPS[group]
+            for key in disabled_keys:
+                if key in features:
+                    features[key] = 0.0
+        else:
+            disabled_keys = set()
+
+        active = tuple(sorted(k for k in features if k not in disabled_keys))
+        return features, active, tuple(sorted(disabled))
+
     def reset(
         self, seed: int | None = None
     ) -> tuple[RawBodyFeedback, AscendingSummary]:
@@ -204,30 +231,51 @@ class BodylessBodyLayer(BodyInterface):
         self.phase = 0.0
         self._position = np.zeros(3, dtype=np.float64)
         raw = self._make_feedback(np.zeros(3, dtype=np.float64))
+        features = {
+            "stability": 1.0,
+            "thorax_height_mm": 0.0,
+            "body_speed_mm_s": 0.0,
+            "contact_fraction": 0.0,
+            "slip_risk": 0.0,
+            "collision_load": 0.0,
+            "locomotion_quality": 0.0,
+            "actuator_effort": 0.0,
+            "target_distance": float("nan"),
+            "target_salience": 0.0,
+            "phase": 0.0,
+            "phase_velocity": self.config.phase_increment,
+        }
+        features, active, disabled = self._apply_channel_ablation(features)
         summary = AscendingSummary(
-            features={
-                "stability": 1.0,
-                "thorax_height_mm": 0.0,
-                "body_speed_mm_s": 0.0,
-                "contact_fraction": 0.0,
-                "slip_risk": 0.0,
-                "locomotion_quality": 0.0,
-                "phase": 0.0,
-                "phase_velocity": self.config.phase_increment,
-            },
-            active_channels=(
-                "body_speed_mm_s",
-                "contact_fraction",
-                "locomotion_quality",
-                "phase",
-                "phase_velocity",
-                "slip_risk",
-                "stability",
-                "thorax_height_mm",
-            ),
-            disabled_channels=tuple(),
+            features=features,
+            active_channels=active,
+            disabled_channels=disabled,
         )
         return raw, summary
+
+    def _build_summary(self, delta: np.ndarray) -> AscendingSummary:
+        """Build an AscendingSummary respecting disabled feedback channels."""
+        speed = float(np.linalg.norm(delta))
+        features = {
+            "stability": 1.0,
+            "thorax_height_mm": 0.0,
+            "body_speed_mm_s": speed,
+            "contact_fraction": 0.0,
+            "slip_risk": 0.0,
+            "collision_load": 0.0,
+            "locomotion_quality": speed,
+            "actuator_effort": speed * 0.5,
+            "target_distance": float("nan"),
+            "target_salience": 0.0,
+            "phase": float(self.phase),
+            "phase_velocity": self.config.phase_increment,
+        }
+        features, active, disabled = self._apply_channel_ablation(features)
+        return AscendingSummary(
+            features=features,
+            active_channels=active,
+            disabled_channels=disabled,
+        )
 
     def step(
         self,
@@ -243,29 +291,7 @@ class BodylessBodyLayer(BodyInterface):
         self.time += self.config.phase_increment
         self.phase += self.config.phase_increment
         raw = self._make_feedback(delta)
-        summary = AscendingSummary(
-            features={
-                "stability": 1.0,
-                "thorax_height_mm": 0.0,
-                "body_speed_mm_s": float(np.linalg.norm(delta)),
-                "contact_fraction": 0.0,
-                "slip_risk": 0.0,
-                "locomotion_quality": float(np.linalg.norm(delta)),
-                "phase": float(self.phase),
-                "phase_velocity": self.config.phase_increment,
-            },
-            active_channels=(
-                "body_speed_mm_s",
-                "contact_fraction",
-                "locomotion_quality",
-                "phase",
-                "phase_velocity",
-                "slip_risk",
-                "stability",
-                "thorax_height_mm",
-            ),
-            disabled_channels=tuple(),
-        )
+        summary = self._build_summary(delta)
         return (
             raw,
             summary,
@@ -302,29 +328,7 @@ class BodylessBodyLayer(BodyInterface):
         self.time += self.config.phase_increment
         self.phase += self.config.phase_increment
         raw = self._make_feedback(delta)
-        summary = AscendingSummary(
-            features={
-                "stability": 1.0,
-                "thorax_height_mm": 0.0,
-                "body_speed_mm_s": float(np.linalg.norm(delta)),
-                "contact_fraction": 0.0,
-                "slip_risk": 0.0,
-                "locomotion_quality": float(np.linalg.norm(delta)),
-                "phase": float(self.phase),
-                "phase_velocity": self.config.phase_increment,
-            },
-            active_channels=(
-                "body_speed_mm_s",
-                "contact_fraction",
-                "locomotion_quality",
-                "phase",
-                "phase_velocity",
-                "slip_risk",
-                "stability",
-                "thorax_height_mm",
-            ),
-            disabled_channels=tuple(),
-        )
+        summary = self._build_summary(delta)
         return raw, summary, {"mode": "bodyless_raw"}
 
     def get_action_spec(self) -> dict[str, tuple[float, float]]:

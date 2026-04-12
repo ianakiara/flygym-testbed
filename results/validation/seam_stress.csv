@@ -1,0 +1,4 @@
+perturbation,seam_fragility_baseline,seam_fragility_perturbed,return_baseline,return_perturbed,performance_drop,stability_drop
+broken_descending,0.0,0.0,-118.16694742850004,-92.11499347758794,-26.051953950912093,1.0
+sensor_dropout,0.0,0.0,-118.16694742850004,-118.16694742850004,0.0,0.0
+all_channels_broken,0.0,0.0,-118.16694742850004,-92.11499347758794,-26.051953950912093,1.0
