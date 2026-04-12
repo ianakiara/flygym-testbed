@@ -121,7 +121,41 @@ class RawControlController(BrainInterface):
 
 
 @dataclass(slots=True)
-class BodylessAvatarController(ReducedDescendingController):
-    """Alias for reduced descending control in bodyless avatar-only ablations."""
+class BodylessAvatarController(BrainInterface):
+    """Bodyless baseline: uses world observations (target_vector) but ignores
+    all ascending body feedback (stability, body_speed, contacts, etc.).
 
-    pass
+    This is the key comparison partner for body-preserving controllers —
+    any structural gains from body feedback should show up as differences
+    between this controller and :class:`ReducedDescendingController`.
+    """
+
+    memory_trace: float = 0.0
+
+    def reset(self, seed: int | None = None) -> None:
+        del seed
+        self.memory_trace = 0.0
+
+    def act(self, observation: BrainObservation) -> DescendingCommand:
+        target_vector = np.asarray(
+            observation.world.observables.get("target_vector", np.zeros(2)),
+            dtype=np.float64,
+        )
+        # Deliberately ignore all ascending feedback — no stability, no
+        # body_speed, no contact info.  Only world-level target is used.
+        self.memory_trace = 0.8 * self.memory_trace + 0.2 * float(
+            np.linalg.norm(target_vector)
+        )
+        move_intent = float(np.clip(target_vector[0], -1.0, 1.0))
+        turn_intent = float(np.clip(target_vector[1], -1.0, 1.0))
+        return DescendingCommand(
+            move_intent=move_intent,
+            turn_intent=turn_intent,
+            speed_modulation=float(np.clip(self.memory_trace, -1.0, 1.0)),
+            # Fixed low stabilization — bodyless agent doesn't know body state
+            stabilization_priority=0.25,
+            target_bias=(float(target_vector[0]), float(target_vector[1])),
+        )
+
+    def get_internal_state(self) -> dict[str, float]:
+        return {"memory_trace": float(self.memory_trace)}

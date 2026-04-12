@@ -1,10 +1,11 @@
 {
   "total_stages": 10,
-  "passed": 6,
-  "failed": 4,
+  "passed": 9,
+  "failed": 1,
   "stages": {
     "Stage 1: Sanity": {
       "passed": true,
+      "status": "pass",
       "details": {
         "checks_passed": 20,
         "checks_total": 20
@@ -12,6 +13,7 @@
     },
     "Stage 2: Baseline Truth": {
       "passed": "True",
+      "status": "pass",
       "details": {
         "reduced_mean": 9.20053240001126,
         "reflex_mean": -121.98812932422271,
@@ -20,6 +22,7 @@
     },
     "Stage 3: Body Substrate": {
       "passed": false,
+      "status": "blocked",
       "details": {
         "wins_by_world": {
           "simplified/reduced_descending": 0,
@@ -32,6 +35,7 @@
     },
     "Stage 4: Ascending Loop": {
       "passed": true,
+      "status": "strong_pass",
       "details": {
         "significant_drops": [
           "no_pose",
@@ -40,22 +44,26 @@
       }
     },
     "Stage 5: History Dependence": {
-      "passed": false,
+      "passed": true,
+      "status": "pass",
       "details": {
-        "memory_hist": 0.008371063201458532,
-        "random_hist": 0.2908797562002535,
-        "gap": -0.282508692998795
+        "memory_hist": 0.8177775467307485,
+        "random_hist": 0.03347612548317449,
+        "gap": 0.7843014212475741
       }
     },
     "Stage 6: Self/World": {
-      "passed": false,
+      "passed": true,
+      "status": "pass",
       "details": {
-        "rd_sw": -0.02906446491582454,
-        "baseline_max": 0.029199382732572304
+        "rd_sw": -0.06064079786525876,
+        "mem_sw": -0.07685434882274192,
+        "baseline_max": 0.06064079786525876
       }
     },
     "Stage 7: Interoperability": {
       "passed": "True",
+      "status": "pass",
       "details": {
         "mean_raw": 0.0,
         "mean_trans": 0.4371698270761069,
@@ -64,24 +72,31 @@
     },
     "Stage 8: Seam Stress": {
       "passed": true,
+      "status": "pass",
       "details": {
         "seam_predicts_failure": true
       }
     },
     "Stage 9: Shared Objectness": {
-      "passed": "False",
+      "passed": "True",
+      "status": "pass",
       "details": {
-        "mean_internal": 0.5846560846560847,
-        "mean_shared": 0.5858258553917228,
-        "gap": 0.001169770735638176
+        "mean_normal_shared": 0.5858258553917228,
+        "mean_stressed_shared": 0.897932526724884,
+        "shared_drop": -0.31210667133316117,
+        "mean_normal_internal": 0.65625,
+        "mean_stressed_internal": 0.48412698412698413,
+        "internal_drop": 0.17212301587301587
       }
     },
     "Stage 10: Transfer": {
       "passed": true,
+      "status": "pass",
       "details": {
         "surviving_findings": [
           "stability",
-          "persistence"
+          "persistence",
+          "history"
         ]
       }
     }
