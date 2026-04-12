@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..interfaces import StepTransition
+from ..interfaces import DescendingCommand, StepTransition
 
 
 def cross_time_mutual_information(
@@ -165,8 +165,11 @@ def hysteresis_metric(
     actions: list[float] = []
     for t in transitions:
         states.append(t.observation.summary.features.get(state_key, 0.0))
-        if hasattr(t.action, action_key):
-            actions.append(float(getattr(t.action, action_key)))
+        if isinstance(t.action, DescendingCommand):
+            # action_key is a user-supplied attribute name (default "move_intent")
+            # so dynamic lookup via getattr is intentional here.
+            val = getattr(t.action, action_key, None)
+            actions.append(float(val) if val is not None else 0.0)
         else:
             actions.append(0.0)
 

@@ -4,7 +4,7 @@ from collections import defaultdict
 
 import numpy as np
 
-from ..interfaces import StepTransition
+from ..interfaces import DescendingCommand, StepTransition
 
 
 def task_performance(transitions: list[StepTransition]) -> dict[str, float]:
@@ -81,7 +81,7 @@ def history_dependence(transitions: list[StepTransition]) -> dict[str, float]:
         # Round target vectors onto a 0.5-unit grid for finer bucketing
         # while still grouping similar states together.
         key = tuple(np.round(target_vector * 2, 0).astype(int))
-        if hasattr(transition.action, "move_intent"):
+        if isinstance(transition.action, DescendingCommand):
             grouped_actions[key].append(float(transition.action.move_intent))
     if not grouped_actions:
         return {"history_dependence": 0.0}
@@ -138,7 +138,7 @@ def self_world_separation(transitions: list[StepTransition]) -> dict[str, float]
     # --- Signal 1: action change response to events ---
     moves = np.array(
         [
-            float(t.action.move_intent) if hasattr(t.action, "move_intent") else 0.0
+            float(t.action.move_intent) if isinstance(t.action, DescendingCommand) else 0.0
             for t in transitions
         ],
         dtype=np.float64,
