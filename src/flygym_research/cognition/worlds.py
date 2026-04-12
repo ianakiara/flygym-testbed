@@ -87,7 +87,7 @@ class SimplifiedEmbodiedWorld(WorldInterface):
         del summary
         self._rng = np.random.default_rng(seed)
         self._target_xy = raw_feedback.body_positions[0, :2] + self._rng.uniform(
-            2.0, 4.0, size=2
+            self.config.target_min_distance, self.config.target_max_distance, size=2
         )
         self._step_count = 0
         target_vector = self._target_xy - raw_feedback.body_positions[0, :2]

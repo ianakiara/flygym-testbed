@@ -15,8 +15,6 @@ CHANNEL_GROUPS = {
     "internal": {"phase", "phase_velocity"},
 }
 
-NORMAL_FORCE_EPSILON = 1e-6
-
 
 @dataclass(slots=True)
 class AscendingAdapter:
@@ -51,9 +49,11 @@ class AscendingAdapter:
         orientation_error = float(np.linalg.norm(thorax_quat[1:3]))
         contact_fraction = float(np.mean(raw_feedback.contact_active > 0.5))
         tangential_force = np.linalg.norm(raw_feedback.contact_forces[:, :2], axis=1)
-        normal_force = np.abs(raw_feedback.contact_forces[:, 2]) + NORMAL_FORCE_EPSILON
+        normal_force = (
+            np.abs(raw_feedback.contact_forces[:, 2]) + self.config.normal_force_epsilon
+        )
         # Tangential/normal load approximates slip tendency while
-        # NORMAL_FORCE_EPSILON avoids divide-by-zero for tiny normal forces.
+        # the epsilon avoids divide-by-zero for tiny normal forces.
         slip_risk = float(np.mean(tangential_force / normal_force))
         collision_load = float(
             np.mean(np.linalg.norm(raw_feedback.contact_forces, axis=1))

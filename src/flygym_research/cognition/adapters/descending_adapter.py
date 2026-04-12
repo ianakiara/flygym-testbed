@@ -91,13 +91,15 @@ class DescendingAdapter:
 
             if jointdof.axis.value == "pitch":
                 if jointdof.child.link == "coxa":
-                    targets[idx] += 0.12 * swing_term + stabilization_pitch
+                    targets[idx] += (
+                        self.config.coxa_swing_scale * swing_term + stabilization_pitch
+                    )
                 elif jointdof.child.link == "trochanterfemur":
-                    targets[idx] += swing_term
+                    targets[idx] += self.config.trochanterfemur_swing_scale * swing_term
                 elif jointdof.child.link == "tibia":
-                    targets[idx] -= 0.7 * swing_term
+                    targets[idx] -= self.config.tibia_swing_scale * swing_term
                 else:
-                    targets[idx] -= 0.25 * swing_term
+                    targets[idx] -= self.config.tarsus_swing_scale * swing_term
             elif jointdof.axis.value == "yaw":
                 targets[idx] += turn_term + target_term
             elif jointdof.axis.value == "roll":

@@ -17,6 +17,12 @@ class BodyLayerConfig:
     force_range: tuple[float, float] = (-30.0, 30.0)
     disabled_feedback_channels: frozenset[str] = field(default_factory=frozenset)
     bodyless_position_scale: float = 0.1
+    normal_force_epsilon: float = 1e-6
+    # Descending adapter swing-term weights per joint link.
+    coxa_swing_scale: float = 0.12
+    trochanterfemur_swing_scale: float = 1.0
+    tibia_swing_scale: float = 0.7
+    tarsus_swing_scale: float = 0.25
 
 
 @dataclass(slots=True)
@@ -31,3 +37,6 @@ class EnvConfig:
     avatar_stability_gain: float = 0.75
     avatar_external_event_period: int = 7
     avatar_success_radius: float = 0.2
+    # SimplifiedEmbodiedWorld target placement bounds (mm from spawn).
+    target_min_distance: float = 2.0
+    target_max_distance: float = 4.0
