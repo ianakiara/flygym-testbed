@@ -95,14 +95,29 @@ class AscendingAdapter:
 
         disabled = set(self.config.disabled_feedback_channels)
         if disabled:
-            features = {
-                key: value
-                for key, value in features.items()
-                if not any(key in CHANNEL_GROUPS[group] for group in disabled)
-            }
-        active_channels = tuple(sorted(features.keys()))
+            disabled_keys = set()
+            for group in disabled:
+                if group in CHANNEL_GROUPS:
+                    disabled_keys |= CHANNEL_GROUPS[group]
+            # Zero out rather than drop disabled channels so that
+            # observation shapes remain consistent across ablations.
+            for key in disabled_keys:
+                if key in features:
+                    features[key] = 0.0
+        active_channels = tuple(
+            sorted(k for k in features if k not in self._disabled_keys(disabled))
+        )
         return AscendingSummary(
             features=features,
             active_channels=active_channels,
             disabled_channels=tuple(sorted(disabled)),
         )
+
+    @staticmethod
+    def _disabled_keys(disabled: set[str]) -> set[str]:
+        """Return the set of feature keys that belong to disabled groups."""
+        keys: set[str] = set()
+        for group in disabled:
+            if group in CHANNEL_GROUPS:
+                keys |= CHANNEL_GROUPS[group]
+        return keys

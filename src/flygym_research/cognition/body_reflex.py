@@ -281,8 +281,50 @@ class BodylessBodyLayer(BodyInterface):
         command: RawControlCommand,
         world_state: WorldState | None = None,
     ) -> tuple[RawBodyFeedback, AscendingSummary, dict[str, Any]]:
-        del command, world_state
-        raw, summary, _ = self.step(DescendingCommand())
+        del world_state
+        # Interpret the first two actuator values as positional deltas
+        # to maintain parity with the descending interface.
+        move = (
+            float(command.actuator_inputs[0])
+            if len(command.actuator_inputs) > 0
+            else 0.0
+        )
+        turn = (
+            float(command.actuator_inputs[1])
+            if len(command.actuator_inputs) > 1
+            else 0.0
+        )
+        delta = (
+            np.array([move, turn, 0.0], dtype=np.float64)
+            * self.config.bodyless_position_scale
+        )
+        self._position += delta
+        self.time += self.config.phase_increment
+        self.phase += self.config.phase_increment
+        raw = self._make_feedback(delta)
+        summary = AscendingSummary(
+            features={
+                "stability": 1.0,
+                "thorax_height_mm": 0.0,
+                "body_speed_mm_s": float(np.linalg.norm(delta)),
+                "contact_fraction": 0.0,
+                "slip_risk": 0.0,
+                "locomotion_quality": float(np.linalg.norm(delta)),
+                "phase": float(self.phase),
+                "phase_velocity": self.config.phase_increment,
+            },
+            active_channels=(
+                "body_speed_mm_s",
+                "contact_fraction",
+                "locomotion_quality",
+                "phase",
+                "phase_velocity",
+                "slip_risk",
+                "stability",
+                "thorax_height_mm",
+            ),
+            disabled_channels=tuple(),
+        )
         return raw, summary, {"mode": "bodyless_raw"}
 
     def get_action_spec(self) -> dict[str, tuple[float, float]]:

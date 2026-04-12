@@ -8,6 +8,7 @@ from ..interfaces import StepTransition
 
 
 def task_performance(transitions: list[StepTransition]) -> dict[str, float]:
+    """Compute episode return, mean reward, and binary success flag."""
     rewards = np.array(
         [transition.reward for transition in transitions], dtype=np.float64
     )
@@ -19,6 +20,7 @@ def task_performance(transitions: list[StepTransition]) -> dict[str, float]:
 
 
 def stabilization_quality(transitions: list[StepTransition]) -> dict[str, float]:
+    """Mean and minimum stability over an episode."""
     stability = np.array(
         [
             transition.observation.summary.features.get("stability", 0.0)
@@ -37,6 +39,7 @@ def state_persistence(
     *,
     key: str = "phase",
 ) -> dict[str, float]:
+    """Lag-1 autocorrelation of an ascending-summary feature over the episode."""
     values = np.array(
         [
             transition.observation.summary.features.get(key, 0.0)
@@ -55,6 +58,7 @@ def state_persistence(
 
 
 def history_dependence(transitions: list[StepTransition]) -> dict[str, float]:
+    """Variance of actions within coarse-state buckets as a history-effect proxy."""
     grouped_actions: dict[tuple[int, int], list[float]] = defaultdict(list)
     for transition in transitions:
         target_vector = np.asarray(
@@ -75,6 +79,7 @@ def history_dependence(transitions: list[StepTransition]) -> dict[str, float]:
 
 
 def self_world_separation(transitions: list[StepTransition]) -> dict[str, float]:
+    """Correlation between external world events and body speed as a self/world marker."""
     external = np.array(
         [
             float(transition.info.get("external_world_event", False))
@@ -98,6 +103,7 @@ def self_world_separation(transitions: list[StepTransition]) -> dict[str, float]
 
 
 def seam_fragility(transitions: list[StepTransition]) -> dict[str, float]:
+    """Mean descending-to-body target delta; larger values indicate more aggressive mapping."""
     mean_delta = []
     for transition in transitions:
         body_log = transition.info.get("body_log", {})
@@ -107,6 +113,7 @@ def seam_fragility(transitions: list[StepTransition]) -> dict[str, float]:
 
 
 def summarize_metrics(transitions: list[StepTransition]) -> dict[str, float]:
+    """Run all core metric functions and merge results into one dictionary."""
     metrics = {}
     for fn in (
         task_performance,

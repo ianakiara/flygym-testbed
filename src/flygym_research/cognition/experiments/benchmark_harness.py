@@ -17,7 +17,7 @@ class BenchmarkResult:
 
 def run_episode(
     env, controller: BrainInterface, *, seed: int = 0, max_steps: int | None = None
-):
+) -> list[StepTransition]:
     observation = env.reset(seed=seed)
     controller.reset(seed=seed)
     transitions: list[StepTransition] = []
@@ -34,7 +34,7 @@ def run_episode(
 
 def run_baseline_suite(
     env_factory, controllers: dict[str, BrainInterface], *, seeds: list[int]
-):
+) -> list[BenchmarkResult]:
     results: list[BenchmarkResult] = []
     for seed in seeds:
         for name, controller in controllers.items():

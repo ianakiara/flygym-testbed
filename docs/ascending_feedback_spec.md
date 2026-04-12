@@ -40,3 +40,11 @@ Current channel groups:
 - `locomotion`
 - `target`
 - `internal`
+
+### Ablation behavior
+
+When a channel group is disabled:
+- the corresponding feature keys are **zeroed** (set to `0.0`), not removed from the dict
+- the observation shape remains consistent across ablation conditions
+- the `active_channels` tuple excludes zeroed keys
+- the `disabled_channels` tuple records which groups were ablated
