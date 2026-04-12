@@ -12,7 +12,7 @@
 | 6. Self/World | **PASS** | Memory controller |self_world|=0.077 beats all baselines (reflex=0.000, bodyless=0.061, random=0.005). Activity-gated metric prevents trivial scores from static controllers. |
 | 7. Interoperability | **PASS** | Linear translation R²=0.888 vs raw alignment 0.493. Gap of 0.394 with reward excluded from composite. 14-dimensional state vectors, 10 pairs, equal-length episodes. |
 | 7b. Quotient Operator | **PASS** | Environment acts as many→one projection: 48.5% information loss, 3 equivalence classes, 10/10 translations preserve E (mean R²=0.893), classes robust under perturbation. |
-| 7c. Publishable Protocol | **PASS** | 5 experiments confirm statistical rigor: CV test R²=0.773 (not overfitting), 55% cross-world transfer, structure genuinely linear (MLP worse), graceful noise degradation. |
+| 7c. Publishable Protocol | **PASS** | 5 experiments confirm statistical rigor: CV test R²=0.773 (not overfitting), 55% cross-world transfer, no evidence of nonlinear structure (MLP worse than OLS), graceful noise degradation. |
 | 8. Seam Stress | **PASS** | Breaking descending channels causes 100% stability drop even when raw performance improves (-26.05). Seam perturbation predicts structural failure. |
 | 9. Shared Objectness | **PASS** | Pose-ablation stress causes internal objectness to drop 0.656→0.484 (Δ=0.172) while shared similarity rises 0.586→0.898 (controllers converge to similar broken behavior). Stress reveals structural degradation. |
 | 10. Transfer | **PASS** | Stability, persistence, and history survive across all 3 worlds. |
@@ -49,7 +49,7 @@ Six bugs were discovered and corrected during the deep audit:
 8. **Translation finding survives publishable-level scrutiny** (Stage 7c) — Five experiments confirm statistical rigor:
    - **Cross-validation**: test R²=0.773 under 5-fold CV (gap=7.9%, NOT overfitting)
    - **Cross-world transfer**: 55% of within-world R² transfers from avatar_remapped to simplified_embodied (mix of controller-intrinsic and environment-mediated structure)
-   - **Linear structure confirmed**: MLP does WORSE than OLS (gap=−0.159) — shared structure is genuinely linear
+   - **No evidence of nonlinear structure**: MLP does WORSE than OLS (gap=−0.159) — consistent with linear shared structure
    - **Noise robustness**: graceful degradation under all noise levels, no cliff-drops
    - **Dimensionality**: core structure in first 5–8 dimensions, continues improving to 14D
 9. **Seam perturbation predicts failure** — broken seams cause stability collapse even when reward improves. **STRONG** finding.
@@ -76,7 +76,7 @@ Evidence: pose ablation → 100% stability collapse; different channels → diff
 
 Evidence: 14-dimensional state vectors (position, heading, target, actions, ascending features). Strongest gains on dissimilar pairs (planner↔reflex raw=0.21→translated=0.89). Reward excluded to prevent environment-imposed inflation. Equal-length episodes.
 
-**Stage 7c upgrade**: Finding survives publishable-level scrutiny — test R²=0.773 under 5-fold CV (7.9% overfitting gap), 55% cross-world transfer ratio, genuinely linear structure (MLP does worse), graceful noise degradation. Trivial pairs excluded from all aggregates.
+**Stage 7c upgrade**: Finding survives publishable-level scrutiny — test R²=0.773 under 5-fold CV (7.9% overfitting gap), 55% cross-world transfer ratio, no evidence of nonlinear structure (MLP does worse, though small dataset may contribute), graceful noise degradation. Trivial pairs excluded from all aggregates.
 
 **Caveat**: 55% transfer ratio means structure is a mix of controller-intrinsic and environment-mediated. Three pairs show zero cross-world transfer.
 
@@ -116,7 +116,7 @@ Evidence: broken seams → 100% stability loss + reward improvement; local metri
 | Ascending loop matters | **Strong → Promoted** | Survives ablation, different collapse signatures, transfers |
 | Controller interoperability | **Strong → Promoted** | R²=0.888 translated vs 0.493 raw, reward excluded, consistent across 10 pairs |
 | Quotient operator (env as projection) | **Strong → Promoted** | 48.5% info loss, 3 equiv classes, 10/10 E∘T≈E valid, robust under perturbation |
-| Translation publishable protocol | **Strong → Promoted** | CV test R²=0.773, 55% cross-world transfer, linear confirmed (MLP worse), graceful noise degradation |
+| Translation publishable protocol | **Strong → Promoted** | CV test R²=0.773, 55% cross-world transfer, no evidence of nonlinear structure (MLP worse), graceful noise degradation |
 | Seam fragility law | **Strong → Promoted** | Local metrics mislead, seam metrics predict failure |
 | History dependence | **Useful** | Clear signal (memory 0.82 vs random 0.03), survives transfer across 3 worlds |
 | Self/world separation | **Useful** | Signal exists (0.077 vs 0.061 baselines) but weak; needs harsher protocol |

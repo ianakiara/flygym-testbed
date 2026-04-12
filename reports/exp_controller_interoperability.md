@@ -216,10 +216,7 @@ Stage 7c elevates the translation finding from "strong signal" to "statistically
 
 **Aggregate (nontrivial)**: Linear=0.846, Nonlinear=0.687, Gap=−0.159
 
-**Verdict**: Structure is GENUINELY LINEAR. The MLP actually does WORSE than OLS on every single pair (negative gap everywhere). This is a very strong finding — it means:
-1. The shared structure between controllers is a simple linear coordinate change
-2. Adding nonlinearity introduces overfitting without capturing deeper patterns
-3. The "controllers are different coordinate systems of the same space" interpretation is precise
+**Verdict**: No evidence of nonlinear structure. The MLP does WORSE than OLS on every pair (negative gap everywhere), consistent with the shared structure being well-approximated by a linear coordinate change. However, the MLP's underperformance may also partly reflect the small dataset (64 samples) making nonlinear optimisation harder than closed-form OLS. The finding supports — but does not conclusively prove — that the shared manifold is linear. With more data or a better-tuned nonlinear model, the gap might narrow to zero (confirming linearity) rather than stay negative.
 
 ### Experiment 4: Noise Robustness
 
@@ -262,14 +259,14 @@ Stage 7c elevates the translation finding from "strong signal" to "statistically
 | Criterion | Result | Threshold |
 |-----------|--------|-----------|
 | CV test R² > 0.3 | 0.773 | > 0.3 |
-| Structure is linear | True (gap = −0.159) | gap < 0.05 |
+| No nonlinear advantage | True (gap = −0.159) | MLP gap < 0.05 over OLS |
 | Noise degrades gracefully | True (all pairs) | no cliff-drops |
 | Moderate noise robust (≥50% pairs) | True | R²>0.3 at 1× noise |
 | **PASS** | **True** | |
 
 ### Stage 7c Corrected Claim
 
-> Different controllers trained on the same task learn internal representations that are not directly comparable, but can be aligned through low-loss linear transformations (test R²=0.773 under 5-fold CV), revealing a shared latent task structure that is (a) genuinely linear (MLP adds nothing), (b) partially environment-mediated (55% transfer ratio across worlds), and (c) robust to moderate measurement noise (graceful degradation, no cliff-drops).
+> Different controllers trained on the same task learn internal representations that are not directly comparable, but can be aligned through low-loss linear transformations (test R²=0.773 under 5-fold CV), revealing a shared latent task structure that is (a) well-approximated by linear maps (no evidence of nonlinear advantage), (b) partially environment-mediated (55% transfer ratio across worlds), and (c) robust to moderate measurement noise (graceful degradation, no cliff-drops).
 
 ### What Stage 7c proves beyond Stage 7
 

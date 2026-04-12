@@ -99,8 +99,8 @@
 - Without MuJoCo body physics, we have not tested embodiment at all
 - The bodyless layer is a kinematic placeholder, not an embodied system
 
-### 3. "10/10 stages validate the research program"
-- 10 passed, 1 blocked (11 stages total including 7b). The blocked stage (body substrate) is one of the five crown-jewel validations.
+### 3. "10/13 stages validate the research program"
+- 12 passed, 1 blocked (13 stages total including 7b and 7c). The blocked stage (body substrate) is one of the five crown-jewel validations.
 - Several passing stages have caveats and need stronger protocols.
 
 ---

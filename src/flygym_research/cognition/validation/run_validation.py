@@ -929,8 +929,11 @@ def stage_7c_publishable_protocol(output_dir: Path) -> StageResult:
     Also reports aggregate stats excluding trivial pairs (reflex↔raw_control),
     with median + IQR alongside mean.
 
-    Pass condition: CV test R² > 0.3 AND structure is linear (gap < 0.05)
-    AND noise-robust (R² > 0.3 at 2× noise).
+    Pass condition (three independent evidence lines):
+      1. CV test R² > 0.3 (finding is not overfitting)
+      2. Structure is linear (MLP gap < 0.05 over OLS)
+      3. Noise degrades gracefully (no cliff-drops) AND ≥50% of nontrivial
+         pairs remain meaningful (R² > 0.3) at 1× noise (equal to signal std)
     """
     notes = []
 

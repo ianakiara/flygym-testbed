@@ -131,7 +131,7 @@
 *Experiment 3 — Nonlinear vs linear:*
 - Linear R²=0.846, MLP R²=0.687, Gap=−0.159
 - MLP does WORSE than OLS on ALL 10 pairs (negative gap everywhere)
-- Structure is genuinely linear — not a curved manifold
+- No evidence of nonlinear structure — consistent with linear shared manifold, though small dataset (64 samples) makes nonlinear training harder than closed-form OLS
 
 *Experiment 4 — Noise robustness:*
 - All 9 nontrivial pairs show graceful degradation (no cliff-drops)
@@ -159,7 +159,7 @@
 **Next experiment**: (1) Add RL-trained controller. (2) Test with radically different reward structure. (3) Increase episode length to 256+ steps.
 **Risk if wrong**: 55% cross-world transfer means ~45% of structure IS environment-mediated. The "shared structure" claim must be qualified: it's partially intrinsic, partially imposed by the environment.
 
-**Suggested wording**: Different controllers trained on the same task learn internal representations that are not directly comparable, but can be aligned through low-loss linear transformations (test R²=0.773 under 5-fold CV), revealing a shared latent task structure that is (a) genuinely linear (MLP adds nothing), (b) partially environment-mediated (55% transfer ratio across worlds), and (c) robust to moderate measurement noise (graceful degradation, no cliff-drops).
+**Suggested wording**: Different controllers trained on the same task learn internal representations that are not directly comparable, but can be aligned through low-loss linear transformations (test R²=0.773 under 5-fold CV), revealing a shared latent task structure that is (a) well-approximated by linear maps (no evidence of nonlinear advantage), (b) partially environment-mediated (55% transfer ratio across worlds), and (c) robust to moderate measurement noise (graceful degradation, no cliff-drops).
 
 ---
 

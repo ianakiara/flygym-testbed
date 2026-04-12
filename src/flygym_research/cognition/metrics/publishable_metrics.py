@@ -95,6 +95,10 @@ def cross_validated_translation_r2(
     if n < k_folds * 3:  # Need at least 3 samples per fold
         return {"train_r2": 0.0, "test_r2": 0.0, "gap": 0.0, "k_folds": k_folds}
 
+    # NOTE: Standardisation uses full-dataset statistics before the fold split.
+    # This is a common simplification — the test-fold mean/std leak is minor
+    # for linear regression (OLS adjusts via the bias term).  A stricter
+    # implementation would re-standardise per fold using only train statistics.
     Za = _standardize(extract_state_matrix(transitions_a[:n]))
     Zb = _standardize(extract_state_matrix(transitions_b[:n]))
 
