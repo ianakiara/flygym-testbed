@@ -76,12 +76,21 @@ def compression_gain(original_count: int, compressed_count: int) -> dict[str, fl
 
 
 
+# Metrics where *lower* values indicate better performance.  The delta
+# calculation must negate these so that improvement is always positive.
+_LOWER_IS_BETTER = frozenset({"seam_fragility"})
+
+
 def post_compression_robustness_delta(
     baseline_metrics: dict[str, float],
     compressed_metrics: dict[str, float],
 ) -> dict[str, float]:
     keys = sorted(set(baseline_metrics) | set(compressed_metrics))
-    deltas = [compressed_metrics.get(key, 0.0) - baseline_metrics.get(key, 0.0) for key in keys]
+    deltas: list[float] = []
+    for key in keys:
+        raw = compressed_metrics.get(key, 0.0) - baseline_metrics.get(key, 0.0)
+        # Negate "lower is better" metrics so improvement is always positive.
+        deltas.append(-raw if key in _LOWER_IS_BETTER else raw)
     mean_delta = float(np.mean(deltas)) if deltas else 0.0
     return {
         "post_compression_robustness_delta": mean_delta,

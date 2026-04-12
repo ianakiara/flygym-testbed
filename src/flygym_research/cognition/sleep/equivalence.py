@@ -59,8 +59,15 @@ def _success_signature(episode: TraceEpisode) -> bool:
 
 
 
-def _cluster_key(episode: TraceEpisode) -> tuple[str, str, bool]:
-    return (episode.world_mode, episode.perturbation_tag, _success_signature(episode))
+def _cluster_key(
+    episode: TraceEpisode,
+) -> tuple[str, str, tuple[str, ...], bool]:
+    return (
+        episode.world_mode,
+        episode.perturbation_tag,
+        episode.ablation_channels,
+        _success_signature(episode),
+    )
 
 
 

@@ -116,7 +116,7 @@ def compress_trace_bank(
             "pass_rate": 1.0 if passed else 0.0,
             "passed": passed,
         },
-        reports={"candidate_decisions": artifact_summary if False else {}},
+        reports={},
         metadata={
             "n_original_episodes": len(episodes),
             "n_retained_entries": len(unique_compressed) + len(unique_residual),
