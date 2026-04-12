@@ -76,7 +76,7 @@ def build_equivalence_classes(
     *,
     min_equivalence_strength: float = 0.55,
 ) -> list[list[TraceEpisode]]:
-    grouped: dict[tuple[str, str, bool], list[TraceEpisode]] = defaultdict(list)
+    grouped: dict[tuple[str, str, tuple[str, ...], bool], list[TraceEpisode]] = defaultdict(list)
     for episode in episodes:
         grouped[_cluster_key(episode)].append(episode)
 

@@ -136,6 +136,15 @@ class TestSleepMetrics:
         repair = repairability_score({"n_failures": 3, "n_patchable_failures": 2})
         assert repair["repairability_score"] == pytest.approx(2 / 3)
 
+    def test_repairability_score_edge_cases(self):
+        # Zero failures → perfect score
+        repair_zero = repairability_score({"n_failures": 0, "n_patchable_failures": 0})
+        assert repair_zero["repairability_score"] == 1.0
+
+        # Failures but none patchable → zero score
+        repair_none = repairability_score({"n_failures": 5, "n_patchable_failures": 0})
+        assert repair_none["repairability_score"] == 0.0
+
     def test_robustness_delta_handles_inverted_polarity(self):
         # seam_fragility is "lower is better": a decrease should be treated
         # as improvement (positive delta), not regression.
