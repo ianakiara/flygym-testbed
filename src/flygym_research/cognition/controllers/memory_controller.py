@@ -55,9 +55,26 @@ class MemoryController(BrainInterface):
 
         # Extract current observation features as a vector.
         features = observation.summary.features
-        current_vec = np.array(
+        feature_vec = np.array(
             [features.get(k, 0.0) for k in sorted(features)], dtype=np.float64
         )
+
+        # ── World-observable enrichment ──────────────────────────────────
+        # Append world observables (target_vector, cue_signal) to the
+        # stored feature vector.  This is the *architectural* advantage of
+        # a memory controller over a scalar-trace reactive controller:
+        # past directional and cue information is retained in the buffer,
+        # not just a scalar magnitude.
+        target_vector = np.asarray(
+            observation.world.observables.get("target_vector", np.zeros(2)),
+            dtype=np.float64,
+        )
+        cue_signal = float(observation.world.observables.get("cue_signal", 0.5))
+        current_vec = np.concatenate([
+            feature_vec,
+            np.array([target_vector[0], target_vector[1], cue_signal],
+                      dtype=np.float64),
+        ])
         self._memory.append(current_vec)
 
         # Recurrent hidden state update: gated combination of previous
@@ -91,11 +108,16 @@ class MemoryController(BrainInterface):
         else:
             memory_context = current_vec.copy()
 
-        # Target-directed action using both current observation and memory.
-        target_vector = np.asarray(
-            observation.world.observables.get("target_vector", np.zeros(2)),
-            dtype=np.float64,
-        )
+        # ── Memory-corrected target ──────────────────────────────────────
+        # The last 3 elements of each stored vector are
+        # [target_x, target_y, cue_signal].  The memory context's stored
+        # target direction retains information from *before* the target
+        # became ambiguous — this is how the memory controller recovers
+        # cue information that a scalar-trace controller has lost.
+        mem_target = memory_context[-3:-1]  # stored target_x, target_y
+        # Blend: current observation + memory of past target directions.
+        corrected_target = 0.5 * target_vector + 0.5 * mem_target
+
         stability = features.get("stability", 0.0)
 
         # Memory-modulated move intent: hidden state biases action strength.
@@ -106,8 +128,8 @@ class MemoryController(BrainInterface):
         h_speed = float(self._hidden[2]) if self.hidden_dim > 2 else 0.0
         memory_signal = float(np.mean(memory_context[:2])) if len(memory_context) >= 2 else 0.0
 
-        move_intent = float(np.clip(target_vector[0] + 0.1 * h_move, -1.0, 1.0))
-        turn_intent = float(np.clip(target_vector[1] + 0.1 * (h_turn + memory_signal), -1.0, 1.0))
+        move_intent = float(np.clip(corrected_target[0] + 0.1 * h_move, -1.0, 1.0))
+        turn_intent = float(np.clip(corrected_target[1] + 0.1 * (h_turn + memory_signal), -1.0, 1.0))
         speed_mod = float(np.clip(0.3 + 0.2 * h_speed, -1.0, 1.0))
 
         return DescendingCommand(
@@ -115,7 +137,7 @@ class MemoryController(BrainInterface):
             turn_intent=turn_intent,
             speed_modulation=speed_mod,
             stabilization_priority=float(np.clip(stability + 0.2, 0.0, 1.0)),
-            target_bias=(float(target_vector[0]), float(target_vector[1])),
+            target_bias=(float(corrected_target[0]), float(corrected_target[1])),
         )
 
     def get_internal_state(self) -> dict[str, float]:

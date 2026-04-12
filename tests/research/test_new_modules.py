@@ -46,7 +46,9 @@ from flygym_research.cognition.metrics import (
     target_representation_stability,
 )
 from flygym_research.cognition.tasks import (
+    ConditionalSequenceTask,
     DelayedRewardTask,
+    DistractorCueRecallTask,
     HiddenCueRecallTask,
     HistoryDependenceTask,
     NavigationTask,
@@ -365,6 +367,143 @@ class TestHiddenCueRecallTask:
 
         # After cue disappears, signal should be 0.5 (ambiguous).
         assert signals[2] == 0.5  # step 3 > cue_visible_steps=2
+
+
+class TestDistractorCueRecallTask:
+    def test_reset_and_step(self):
+        task = DistractorCueRecallTask()
+        raw = _make_raw_feedback()
+        summary = _make_summary()
+        ws = task.reset(seed=0, raw_feedback=raw, summary=summary)
+        assert ws.mode == "distractor_cue_recall_task"
+        assert "cue_signal" in ws.observables
+        assert "cue_visible" in ws.observables
+        assert ws.observables["cue_visible"] is True
+        assert ws.observables.get("distractor_active") is False
+
+    def test_three_phase_structure(self):
+        config = EnvConfig(episode_steps=30, success_radius_mm=0.001)
+        task = DistractorCueRecallTask(
+            config=config, cue_visible_steps=2, distractor_steps=3,
+        )
+        raw = _make_raw_feedback()
+        summary = _make_summary()
+        task.reset(seed=0, raw_feedback=raw, summary=summary)
+
+        phases = []
+        for _ in range(10):
+            ws = task.step(DescendingCommand(), raw, summary)
+            phases.append(ws.info.get("phase"))
+
+        # steps 1,2 = cue; steps 3,4,5 = distractor; steps 6+ = ambiguous
+        assert phases[0] == "cue"
+        assert phases[1] == "cue"
+        assert phases[2] == "distractor"
+        assert phases[4] == "distractor"
+        assert phases[5] == "ambiguous"
+
+    def test_distractor_flips_cue_signal(self):
+        config = EnvConfig(episode_steps=20, success_radius_mm=0.001)
+        task = DistractorCueRecallTask(
+            config=config, cue_visible_steps=2, distractor_steps=3,
+        )
+        raw = _make_raw_feedback()
+        summary = _make_summary()
+        ws0 = task.reset(seed=42, raw_feedback=raw, summary=summary)
+        true_cue = ws0.observables["cue_signal"]
+
+        signals = []
+        for _ in range(8):
+            ws = task.step(DescendingCommand(), raw, summary)
+            signals.append(ws.observables["cue_signal"])
+
+        # During distractor phase (steps 3-5), cue should be flipped.
+        assert signals[2] == 1 - true_cue  # distractor = opposite
+        # Ambiguous phase: 0.5
+        assert signals[5] == 0.5
+
+    def test_target_vector_misleads_during_distractor(self):
+        config = EnvConfig(episode_steps=20, success_radius_mm=0.001)
+        task = DistractorCueRecallTask(
+            config=config, cue_visible_steps=2, distractor_steps=3,
+        )
+        raw = _make_raw_feedback()
+        summary = _make_summary()
+        task.reset(seed=0, raw_feedback=raw, summary=summary)
+
+        # Step 1 (cue phase) - target_vector should point to correct target
+        ws1 = task.step(DescendingCommand(), raw, summary)
+        tv_cue = ws1.observables["target_vector"]
+
+        # Step 3 (distractor phase) - should point to WRONG target
+        task.step(DescendingCommand(), raw, summary)  # step 2
+        ws3 = task.step(DescendingCommand(), raw, summary)  # step 3
+        tv_distractor = ws3.observables["target_vector"]
+
+        # Cue and distractor should point in opposite x-directions.
+        assert tv_cue[0] * tv_distractor[0] < 0  # opposite signs
+
+
+class TestConditionalSequenceTask:
+    def test_reset_and_step(self):
+        task = ConditionalSequenceTask()
+        raw = _make_raw_feedback()
+        summary = _make_summary()
+        ws = task.reset(seed=0, raw_feedback=raw, summary=summary)
+        assert ws.mode == "conditional_sequence_task"
+        assert "cue_signal" in ws.observables
+        assert "cue_visible" in ws.observables
+        assert "context_zone" in ws.observables
+        assert "in_decision_phase" in ws.observables
+
+    def test_context_then_decision_phases(self):
+        config = EnvConfig(episode_steps=20, success_radius_mm=0.001)
+        task = ConditionalSequenceTask(config=config, context_steps=3)
+        raw = _make_raw_feedback()
+        summary = _make_summary()
+        task.reset(seed=0, raw_feedback=raw, summary=summary)
+
+        phases = []
+        cue_visible_flags = []
+        for _ in range(8):
+            ws = task.step(DescendingCommand(), raw, summary)
+            phases.append(ws.info.get("phase"))
+            cue_visible_flags.append(ws.observables["cue_visible"])
+
+        # Steps 1-3: context phase; steps 4+: decision phase.
+        assert phases[0] == "context"
+        assert phases[2] == "context"
+        assert phases[3] == "decision"
+        assert cue_visible_flags[0] is True
+        assert cue_visible_flags[3] is False
+
+    def test_cue_signal_becomes_ambiguous_in_decision_phase(self):
+        config = EnvConfig(episode_steps=20, success_radius_mm=0.001)
+        task = ConditionalSequenceTask(config=config, context_steps=3)
+        raw = _make_raw_feedback()
+        summary = _make_summary()
+        task.reset(seed=0, raw_feedback=raw, summary=summary)
+
+        signals = []
+        for _ in range(6):
+            ws = task.step(DescendingCommand(), raw, summary)
+            signals.append(ws.observables["cue_signal"])
+
+        # After context_steps=3, cue_signal should be 0.5.
+        assert signals[3] == 0.5
+        assert signals[4] == 0.5
+
+    def test_misleading_reward_same_for_both_contexts(self):
+        config = EnvConfig(episode_steps=20, success_radius_mm=1000.0)
+        task0 = ConditionalSequenceTask(config=config, context_steps=5)
+        task1 = ConditionalSequenceTask(config=config, context_steps=5)
+        raw = _make_raw_feedback()
+        summary = _make_summary()
+        task0.reset(seed=0, raw_feedback=raw, summary=summary)
+        task1.reset(seed=1, raw_feedback=raw, summary=summary)
+
+        # Both tasks should give the same misleading_reward for reaching context zone.
+        assert task0.misleading_reward == task1.misleading_reward
 
 
 # ─── MemoryController ─────────────────────────────────────────────────

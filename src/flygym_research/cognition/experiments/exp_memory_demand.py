@@ -12,10 +12,16 @@ that *require* temporal state to succeed:
 3. **Hidden Cue Recall** — a cue appears briefly at episode start and
    then disappears.  The correct target depends on the cue, but after
    it vanishes the observation is ambiguous.
+4. **Distractor Cue Recall** — true cue, then a *misleading distractor*
+   (opposite direction), then ambiguous.  A scalar trace gets
+   overwritten by the distractor; a full memory buffer can recall the
+   original cue.
+5. **Conditional Sequence** — context signal shown early, then hidden.
+   Two-stage task with misleading intermediate reward.  Correct final
+   action depends on the earlier context.
 
-On standard tasks the memory controller has only a marginal advantage
-(causal depth ≈3.67 vs reactive ≈3.33).  On these memory-demanding
-tasks the gap should widen significantly.
+Tasks 4 and 5 are the *genuinely* memory-demanding tasks — designed so
+that a scalar trace is structurally insufficient.
 """
 
 from __future__ import annotations
@@ -32,7 +38,13 @@ from ..envs import FlyBodyWorldEnv
 from ..metrics import summarize_metrics
 from ..metrics.causal_metrics import temporal_causal_depth
 from ..metrics.core_metrics import history_dependence
-from ..tasks import DelayedRewardTask, HiddenCueRecallTask, HistoryDependenceTask
+from ..tasks import (
+    ConditionalSequenceTask,
+    DelayedRewardTask,
+    DistractorCueRecallTask,
+    HiddenCueRecallTask,
+    HistoryDependenceTask,
+)
 from .benchmark_harness import run_episode
 
 
@@ -52,6 +64,16 @@ def _make_env(task_name: str) -> FlyBodyWorldEnv:
     elif task_name == "hidden_cue_recall":
         world = HiddenCueRecallTask(
             config=config, cue_visible_steps=3, target_distance=2.5,
+        )
+    elif task_name == "distractor_cue_recall":
+        world = DistractorCueRecallTask(
+            config=config, cue_visible_steps=3, distractor_steps=4,
+            target_distance=2.5,
+        )
+    elif task_name == "conditional_sequence":
+        world = ConditionalSequenceTask(
+            config=config, context_steps=5, context_zone_distance=1.5,
+            decision_distance=2.5,
         )
     else:
         raise ValueError(f"Unknown task: {task_name}")
@@ -127,7 +149,13 @@ def run_experiment(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    tasks = ["delayed_reward", "history_dependence", "hidden_cue_recall"]
+    tasks = [
+        "delayed_reward",
+        "history_dependence",
+        "hidden_cue_recall",
+        "distractor_cue_recall",
+        "conditional_sequence",
+    ]
     task_results: dict[str, dict] = {}
     advantages: dict[str, dict] = {}
 
@@ -144,21 +172,31 @@ def run_experiment(
         [adv["return_advantage_vs_reactive"] for adv in advantages.values()]
     ))
 
+    # Separate easy vs hard task analysis.
+    easy_tasks = ["delayed_reward", "history_dependence"]
+    hard_tasks = ["hidden_cue_recall", "distractor_cue_recall", "conditional_sequence"]
+    easy_return_adv = float(np.mean(
+        [advantages[t]["return_advantage_vs_reactive"] for t in easy_tasks]
+    ))
+    hard_return_adv = float(np.mean(
+        [advantages[t]["return_advantage_vs_reactive"] for t in hard_tasks]
+    ))
+
     summary: dict[str, object] = {
         "tasks": tasks,
         "advantages": advantages,
         "cross_task_summary": {
             "mean_depth_advantage_vs_reactive": mean_depth_advantage,
             "mean_return_advantage_vs_reactive": mean_return_advantage,
+            "easy_task_return_advantage": easy_return_adv,
+            "hard_task_return_advantage": hard_return_adv,
         },
         # Key expectations:
-        # - Memory controller should outperform reactive on return.
-        # - Causal depth gap should be positive (memory > reactive).
-        "memory_outperforms_reactive": all(
-            adv["return_advantage_vs_reactive"] >= -0.5
-            for adv in advantages.values()
-        ),
+        # - Memory controller should outperform reactive overall.
+        # - Hard tasks should show larger advantage than easy tasks.
+        "memory_outperforms_reactive": mean_return_advantage >= 0.0,
         "depth_gap_positive": mean_depth_advantage > 0.0,
+        "hard_tasks_show_larger_gap": hard_return_adv > easy_return_adv,
         "per_task": {
             task_name: {
                 "aggregated": result["aggregated"],

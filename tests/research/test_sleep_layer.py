@@ -254,7 +254,7 @@ class TestCrossWorldEquivalence:
 
 
 class TestRepairabilityCurve:
-    """Tests for the repairability curve sweep."""
+    """Tests for the 2-D repairability curve sweep."""
 
     def test_repairability_curve_returns_expected_keys(self):
         episodes = collect_trace_bank(
@@ -264,16 +264,23 @@ class TestRepairabilityCurve:
             perturbation_tags=["baseline"],
             max_steps=10,
         )
-        result = repairability_curve(episodes, thresholds=[0.10, 0.20, 0.30])
+        result = repairability_curve(
+            episodes,
+            seam_thresholds=[0.10, 0.20],
+            mismatch_thresholds=[0.20, 0.35],
+        )
         assert "curve" in result
-        assert "critical_threshold" in result
-        assert "default_threshold_repairability" in result
-        assert "tight_threshold_repairability" in result
-        assert "n_thresholds_tested" in result
-        assert result["n_thresholds_tested"] == 3
+        assert "critical_point" in result
+        assert "default_repairability" in result
+        assert "tight_repairability" in result
+        assert "n_points_tested" in result
+        assert "seam_only_curve" in result
+        assert "mismatch_only_curve" in result
+        # 2 seam × 2 mismatch = 4 points.
+        assert result["n_points_tested"] == 4
 
-    def test_repairability_curve_monotonicity(self):
-        """Tighter thresholds should find more or equal failures."""
+    def test_repairability_curve_2d_has_variation(self):
+        """Sweeping mismatch threshold should produce variation in failures."""
         episodes = collect_trace_bank(
             seeds=[0],
             world_modes=["avatar_remapped", "simplified_embodied"],
@@ -281,9 +288,13 @@ class TestRepairabilityCurve:
             perturbation_tags=["baseline"],
             max_steps=10,
         )
-        result = repairability_curve(episodes, thresholds=[0.05, 0.10, 0.20, 0.30])
+        result = repairability_curve(
+            episodes,
+            seam_thresholds=[0.20],
+            mismatch_thresholds=[0.10, 0.20, 0.35, 0.50],
+        )
         curve = result["curve"]
-        # Failures should decrease or stay same as threshold increases.
+        # Tighter mismatch threshold should find more or equal failures.
         for i in range(len(curve) - 1):
             assert curve[i]["n_failures"] >= curve[i + 1]["n_failures"]
 
@@ -297,4 +308,124 @@ class TestRepairabilityCurve:
             max_steps=10,
         )
         result = repairability_curve(episodes)
-        assert result["n_thresholds_tested"] == 9  # Default has 9 thresholds.
+        # Default: 6 seam × 7 mismatch = 42 points.
+        assert result["n_points_tested"] == 42
+
+    def test_analyze_seam_failures_mismatch_threshold(self):
+        """Parameterised mismatch_threshold should change failure count."""
+        episodes = collect_trace_bank(
+            seeds=[0],
+            world_modes=["avatar_remapped"],
+            ablations=[frozenset()],
+            perturbation_tags=["baseline"],
+            max_steps=10,
+        )
+        lenient = analyze_seam_failures(episodes, mismatch_threshold=0.50)
+        strict = analyze_seam_failures(episodes, mismatch_threshold=0.10)
+        # Strict should find more or equal failures.
+        assert strict["n_failures"] >= lenient["n_failures"]
+
+    def test_joint_patchability_criterion(self):
+        """Patchability now requires both seam AND mismatch within margin."""
+        episodes = collect_trace_bank(
+            seeds=[0],
+            world_modes=["avatar_remapped", "simplified_embodied"],
+            ablations=[frozenset()],
+            perturbation_tags=["baseline"],
+            max_steps=10,
+        )
+        # Very tight thresholds: failures with high mismatch won't be patchable.
+        report = analyze_seam_failures(
+            episodes, seam_threshold=0.05, mismatch_threshold=0.10,
+        )
+        # n_patchable should be <= n_failures.
+        assert report["n_patchable_failures"] <= report["n_failures"]
+
+
+class TestCrossWorldCompressionExperiment:
+    """Tests for the cross-world compression POC experiment."""
+
+    def test_run_experiment(self, tmp_path: Path):
+        from flygym_research.cognition.experiments.exp_cross_world_compression import (
+            run_experiment,
+        )
+
+        result = run_experiment(tmp_path / "cross_world")
+        assert "same_world" in result
+        assert "cross_world" in result
+        assert "scale_drift_activated" in result
+        assert "same_world_drift_zero" in result
+        assert "n_multi_world_clusters" in result
+        # Redundancy analysis and bank quality.
+        assert "redundancy_analysis" in result
+        assert "bank_quality_comparison" in result
+        ra = result["redundancy_analysis"]
+        assert "n_single_world_candidates" in ra
+        assert "n_portable_candidates" in ra
+        assert "portable_fraction" in ra
+        bq = result["bank_quality_comparison"]
+        assert "same_world_kept_episodes" in bq
+        assert "cross_world_kept_episodes" in bq
+        # Same-world drift should be zero.
+        assert result["same_world_drift_zero"] is True
+        # Output files should exist.
+        assert (tmp_path / "cross_world" / "same_world_report.md").exists()
+        assert (tmp_path / "cross_world" / "cross_world_report.md").exists()
+        assert (tmp_path / "cross_world" / "cross_world_summary.json").exists()
+
+    def test_stricter_cluster_analysis(self, tmp_path: Path):
+        from flygym_research.cognition.experiments.exp_cross_world_compression import (
+            run_experiment,
+        )
+
+        result = run_experiment(tmp_path / "cross_world_strict")
+        # Strict clusters (2+ worlds) should be subset of multi-world clusters.
+        assert result["n_strict_clusters_2plus_worlds"] <= result["n_multi_world_clusters"]
+        # Three-world clusters should be subset of strict clusters.
+        assert result["n_three_world_clusters"] <= result["n_strict_clusters_2plus_worlds"]
+
+
+class TestMemoryDemandExperiment:
+    """Tests for the memory-demand POC experiment."""
+
+    def test_run_experiment(self, tmp_path: Path):
+        from flygym_research.cognition.experiments.exp_memory_demand import (
+            run_experiment,
+        )
+
+        result = run_experiment(tmp_path / "memory_demand")
+        assert "tasks" in result
+        assert "advantages" in result
+        assert "per_task" in result
+        assert "cross_task_summary" in result
+        # Should have all 5 tasks.
+        assert len(result["tasks"]) == 5
+        assert "distractor_cue_recall" in result["tasks"]
+        assert "conditional_sequence" in result["tasks"]
+        # Cross-task summary should have easy/hard breakdown.
+        cts = result["cross_task_summary"]
+        assert "easy_task_return_advantage" in cts
+        assert "hard_task_return_advantage" in cts
+
+
+class TestMemoryControllerWorldObservables:
+    """Tests for the MemoryController world-observable enrichment."""
+
+    def test_memory_buffer_includes_world_observables(self):
+        from flygym_research.cognition.body_reflex import BodylessBodyLayer
+        from flygym_research.cognition.controllers import MemoryController
+        from flygym_research.cognition.envs import FlyAvatarEnv
+        from flygym_research.cognition.experiments import run_episode
+
+        env = FlyAvatarEnv(body=BodylessBodyLayer())
+        ctrl = MemoryController(memory_size=8)
+        ctrl.reset(seed=0)
+        obs = env.reset(seed=0)
+        ctrl.act(obs)
+
+        # Memory buffer should store vectors longer than just body features
+        # because world observables (target_x, target_y, cue_signal) are appended.
+        assert len(ctrl._memory) == 1
+        stored_vec = ctrl._memory[0]
+        # Body features alone are ~12 elements; with world observables it should be 15.
+        assert len(stored_vec) > 12
