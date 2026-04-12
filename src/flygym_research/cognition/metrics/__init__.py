@@ -7,6 +7,11 @@ from .core_metrics import (
     summarize_metrics,
     task_performance,
 )
+from .causal_metrics import (
+    causal_influence_score,
+    epiphenomenal_test,
+    temporal_causal_depth,
+)
 from .disruption_metrics import (
     compute_metric_vector,
     global_disruption_signature,
@@ -49,6 +54,16 @@ from .quotient_metrics import (
     full_quotient_analysis,
     translation_preserves_environment,
 )
+from .sleep_metrics import (
+    compression_gain,
+    drift_staleness_score,
+    post_compression_robustness_delta,
+    repairability_score,
+    residual_utility,
+    seam_critical_exception_score,
+    sleep_validation_vector,
+    trajectory_equivalence_strength,
+)
 
 __all__ = [
     "action_trajectory_similarity",
@@ -88,4 +103,15 @@ __all__ = [
     "full_publishable_analysis",
     "noise_robustness_sweep",
     "nonlinear_vs_linear_translation",
+    "compression_gain",
+    "drift_staleness_score",
+    "post_compression_robustness_delta",
+    "repairability_score",
+    "residual_utility",
+    "seam_critical_exception_score",
+    "sleep_validation_vector",
+    "trajectory_equivalence_strength",
+    "causal_influence_score",
+    "epiphenomenal_test",
+    "temporal_causal_depth",
 ]

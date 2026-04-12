@@ -75,12 +75,19 @@ class MemoryController(BrainInterface):
                 [i + 1 for i in range(len(self._memory))], dtype=np.float64
             )
             weights /= weights.sum()
-            memory_vecs = np.array(list(self._memory), dtype=np.float64)
-            # Truncate/pad to uniform length.
-            min_len = min(v.shape[0] for v in self._memory)
-            memory_context = np.average(
-                memory_vecs[:, :min_len], axis=0, weights=weights
-            )
+            # Pad/truncate all vectors to a common length so stacking is safe
+            # even if the feature set changes between steps.
+            target_len = len(current_vec)
+            padded: list[np.ndarray] = []
+            for v in self._memory:
+                if len(v) == target_len:
+                    padded.append(v)
+                elif len(v) < target_len:
+                    padded.append(np.pad(v, (0, target_len - len(v))))
+                else:
+                    padded.append(v[:target_len])
+            memory_vecs = np.array(padded, dtype=np.float64)
+            memory_context = np.average(memory_vecs, axis=0, weights=weights)
         else:
             memory_context = current_vec.copy()
 
@@ -115,3 +122,19 @@ class MemoryController(BrainInterface):
             "step_count": float(self._step_count),
             "gate_decay": self.gate_decay,
         }
+
+    def intervene_state(self, delta: float | np.ndarray) -> None:
+        """Surgically perturb the hidden state by *delta*.
+
+        Used for causal intervention experiments — shifts the hidden state
+        by a known amount to measure downstream behavioural divergence.
+        """
+        self._hidden = self._hidden + np.asarray(delta, dtype=np.float64)
+
+    def shuffle_state(self, rng: np.random.Generator) -> None:
+        """Randomly shuffle the hidden state dimensions.
+
+        Used for epiphenomenal testing — if shuffling the hidden state
+        has no effect on behaviour, the state is decorative.
+        """
+        rng.shuffle(self._hidden)

@@ -241,6 +241,40 @@ class ClaimsLedger:
         md_path.write_text(self.to_markdown())
         json_path.write_text(self.to_json())
 
+    @classmethod
+    def from_json(cls, text: str) -> "ClaimsLedger":
+        """Reconstruct a ledger from JSON produced by :meth:`to_json`."""
+        data = json.loads(text)
+        ledger = cls()
+        for entry in data:
+            promoted_raw = entry.get("promoted_from")
+            claim = Claim(
+                claim_id=entry["claim_id"],
+                text=entry["text"],
+                tier=ClaimTier(entry["tier"]),
+                experiment=entry["experiment"],
+                evidence=entry.get("evidence", []),
+                ablation_survived=entry.get("ablation_survived", []),
+                negative_controls=entry.get("negative_controls", []),
+                failure_modes=entry.get("failure_modes", []),
+                caveats=entry.get("caveats", []),
+                promoted_from=ClaimTier(promoted_raw) if promoted_raw else None,
+            )
+            ledger.claims.append(claim)
+        if data:
+            # Restore counter so new claims get unique ids.
+            max_id = max(
+                int(c.claim_id.split("-")[1]) for c in ledger.claims
+            )
+            ledger._id_counter = max_id
+        return ledger
+
+    @classmethod
+    def load(cls, path: str | Path) -> "ClaimsLedger":
+        """Load a ledger from a JSON file saved by :meth:`save`."""
+        path = Path(path).with_suffix(".json")
+        return cls.from_json(path.read_text())
+
 
 def overclaiming_filter(text: str) -> list[str]:
     """Check text for forbidden consciousness claims.

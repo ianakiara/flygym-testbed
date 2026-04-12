@@ -140,8 +140,10 @@ def predictive_utility(
         return {"predictive_utility": 0.0, "predictive_horizon": float(horizon)}
 
     corr = float(np.corrcoef(past, future)[0, 1])
+    if not np.isfinite(corr):
+        return {"predictive_utility": 0.0, "predictive_horizon": float(horizon)}
     return {
-        "predictive_utility": 0.0 if np.isnan(corr) else abs(corr),
+        "predictive_utility": float(np.clip(abs(corr), 0.0, 1.0)),
         "predictive_horizon": float(horizon),
     }
 

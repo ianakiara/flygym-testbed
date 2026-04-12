@@ -51,7 +51,11 @@ class FlyBodyWorldEnv:
             raw_feedback, summary, body_log = self.body.step_raw(
                 command, self._last_observation.world
             )
-            world_state = self.world.step(DescendingCommand(), raw_feedback, summary)
+            # Raw control bypasses descending adapters; give the world a
+            # neutral descending command so reward/world logic stays valid.
+            world_state = self.world.step(
+                DescendingCommand(state_mode="raw"), raw_feedback, summary,
+            )
         else:
             raw_feedback, summary, body_log = self.body.step(
                 command, self._last_observation.world

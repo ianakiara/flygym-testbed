@@ -54,7 +54,9 @@ def state_persistence(
     if np.allclose(left, left[0]) or np.allclose(right, right[0]):
         return {"state_autocorrelation": 0.0}
     corr = float(np.corrcoef(left, right)[0, 1])
-    return {"state_autocorrelation": 0.0 if np.isnan(corr) else corr}
+    if not np.isfinite(corr):
+        return {"state_autocorrelation": 0.0}
+    return {"state_autocorrelation": float(np.clip(corr, -1.0, 1.0))}
 
 
 def history_dependence(transitions: list[StepTransition]) -> dict[str, float]:

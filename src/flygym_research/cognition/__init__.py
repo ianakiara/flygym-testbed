@@ -3,6 +3,7 @@
 from .body_reflex import BodyLayerConfig, BodylessBodyLayer, FlyBodyLayer
 from .envs import FlyAvatarEnv, FlyBodyWorldEnv, FlyDualWorldEnv
 from .experiments import BenchmarkResult, run_baseline_suite, run_episode
+from .sleep import SleepArtifact, SleepCandidate, TraceEpisode, TraceSegment
 
 __all__ = [
     "BodyLayerConfig",
@@ -14,4 +15,8 @@ __all__ = [
     "BenchmarkResult",
     "run_baseline_suite",
     "run_episode",
+    "SleepArtifact",
+    "SleepCandidate",
+    "TraceEpisode",
+    "TraceSegment",
 ]
