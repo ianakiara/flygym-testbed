@@ -8,6 +8,7 @@ from .baseline_controllers import (
 )
 from .memory_controller import MemoryController
 from .planner_controller import PlannerController
+from .slot_memory_controller import SlotMemoryController
 
 __all__ = [
     "BodylessAvatarController",
@@ -18,4 +19,5 @@ __all__ = [
     "RawControlController",
     "ReducedDescendingController",
     "ReflexOnlyController",
+    "SlotMemoryController",
 ]

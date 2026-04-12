@@ -54,6 +54,11 @@ from .quotient_metrics import (
     full_quotient_analysis,
     translation_preserves_environment,
 )
+from .backbone_shared import (
+    BackboneSharedConfig,
+    compare_world_modes,
+    compute_backbone_shared,
+)
 from .sleep_metrics import (
     compression_gain,
     drift_staleness_score,
@@ -114,4 +119,7 @@ __all__ = [
     "causal_influence_score",
     "epiphenomenal_test",
     "temporal_causal_depth",
+    "BackboneSharedConfig",
+    "compare_world_modes",
+    "compute_backbone_shared",
 ]
