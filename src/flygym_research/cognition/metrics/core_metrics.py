@@ -61,8 +61,8 @@ def history_dependence(transitions: list[StepTransition]) -> dict[str, float]:
             transition.observation.world.observables.get("target_vector", np.zeros(2)),
             dtype=np.float64,
         )
-        # Quantize target vectors into 1.0-unit bins to compare actions under similar
-        # coarse state while preserving enough samples per bucket for history effects.
+        # Round target vectors onto a 1.0-unit grid so similar coarse states share a
+        # bucket while still leaving enough samples per bucket for history effects.
         key = tuple(np.round(target_vector, 0).astype(int))
         if hasattr(transition.action, "move_intent"):
             grouped_actions[key].append(float(transition.action.move_intent))
