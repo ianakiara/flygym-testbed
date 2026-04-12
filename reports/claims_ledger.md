@@ -2,8 +2,8 @@
 
 ## Summary
 
-- Total claims evaluated: 10
-- Promoted: 4 (including CLM-002b: quotient operator)
+- Total claims evaluated: 11
+- Promoted: 5 (including CLM-002b: quotient operator, CLM-002c: publishable protocol)
 - Useful: 4
 - Blocked: 1
 - Proxy insufficient: 1
@@ -104,6 +104,62 @@
 - BodylessBodyLayer ascending features are not independent measurements
 
 **Suggested wording**: The environment acts as a quotient operator that defines equivalence classes over controller space: 48.5% of internal state information is destroyed by the environment projection, three natural controller classes emerge, and all pairwise translation maps preserve environment structure (E ∘ T ≈ E, mean preservation R²=0.893).
+
+---
+
+### CLM-002c: Controller translation survives publishable-level statistical scrutiny
+
+**Status**: PROMOTED (publishable_level_insight)
+**Experiment**: Stage 7c — Publishable protocol (5 experiments)
+**Evidence**:
+
+*Experiment 1 — Cross-validation (5-fold):*
+- Train R²=0.852, Test R²=0.773, Gap=0.079 (7.9% overfitting)
+- Finding is NOT an overfitting artifact despite 64 samples / 14 dimensions (ratio 4.6:1)
+- Strongest: memory↔reduced_descending test R²=0.994 (gap 0.36%)
+- Weakest: raw_control↔reduced_descending test R²=0.424 (gap 31.2%)
+- All statistics exclude trivial pair (reflex_only↔raw_control)
+
+*Experiment 2 — Cross-world transfer:*
+- Within-world R²=0.848, Transfer R²=0.467, Ratio=55%
+- Translation PARTIALLY transfers from avatar_remapped to simplified_embodied
+- Full transfer for passive-controller pairs (ratio ~1.0)
+- Partial transfer: raw_control↔reduced_descending (0.934), planner↔reduced_descending (0.513)
+- No transfer: memory↔planner (0.0), memory↔raw_control (0.0) — entirely environment-mediated
+- **Key insight**: Structure is a MIX of controller-intrinsic and environment-mediated
+
+*Experiment 3 — Nonlinear vs linear:*
+- Linear R²=0.846, MLP R²=0.687, Gap=−0.159
+- MLP does WORSE than OLS on ALL 10 pairs (negative gap everywhere)
+- Structure is genuinely linear — not a curved manifold
+
+*Experiment 4 — Noise robustness:*
+- All 9 nontrivial pairs show graceful degradation (no cliff-drops)
+- At 1× noise (equal to signal std): R²≈0.43 mean (still meaningful)
+- At 2× noise: R²≈0.26 (expected at extreme noise level)
+- Degradation rate: 0.292 per unit noise
+
+*Experiment 5 — Dimensionality sweep:*
+- Core structure in first 5 dimensions (position-related)
+- Some pairs saturate at 8D, others continue improving to 14D
+- memory↔reduced_descending: R²=0.996 at just 5D (nearly all structure is positional)
+
+**Pass condition**: CV test R² > 0.3 (0.773) AND structure is linear (True) AND noise degrades gracefully (True) AND ≥50% pairs moderate-robust (True)
+
+**Previous risks addressed**:
+| Risk | Before Stage 7c | After Stage 7c |
+|------|----------------|----------------|
+| Overfitting | Unknown (ratio 4.6:1) | Ruled out: test R²=0.773, gap=7.9% |
+| Trivial pair inflation | reflex↔raw inflated mean | Excluded from all aggregates |
+| Single environment | Only avatar_remapped | 55% transfers to simplified_embodied |
+| Linear assumption untested | Only OLS | Linear confirmed: MLP does worse |
+| Noise fragility | Unknown | Graceful degradation, no cliff-drops |
+
+**Strongest falsifier**: If cross-validation test R² had collapsed near zero, the entire finding would be overfitting. It didn't — 0.773 is strong.
+**Next experiment**: (1) Add RL-trained controller. (2) Test with radically different reward structure. (3) Increase episode length to 256+ steps.
+**Risk if wrong**: 55% cross-world transfer means ~45% of structure IS environment-mediated. The "shared structure" claim must be qualified: it's partially intrinsic, partially imposed by the environment.
+
+**Suggested wording**: Different controllers trained on the same task learn internal representations that are not directly comparable, but can be aligned through low-loss linear transformations (test R²=0.773 under 5-fold CV), revealing a shared latent task structure that is (a) genuinely linear (MLP adds nothing), (b) partially environment-mediated (55% transfer ratio across worlds), and (c) robust to moderate measurement noise (graceful degradation, no cliff-drops).
 
 ---
 

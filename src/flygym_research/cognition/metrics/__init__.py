@@ -32,6 +32,15 @@ from .persistence_metrics import (
     predictive_utility,
     state_decay_curve,
 )
+from .publishable_metrics import (
+    cross_validated_translation_r2,
+    cross_world_translation_r2,
+    dimensionality_sweep,
+    distribution_stats,
+    full_publishable_analysis,
+    noise_robustness_sweep,
+    nonlinear_vs_linear_translation,
+)
 from .quotient_metrics import (
     counterfactual_divergence,
     degeneracy_score,
@@ -72,4 +81,11 @@ __all__ = [
     "equivalence_class_size",
     "full_quotient_analysis",
     "translation_preserves_environment",
+    "cross_validated_translation_r2",
+    "cross_world_translation_r2",
+    "dimensionality_sweep",
+    "distribution_stats",
+    "full_publishable_analysis",
+    "noise_robustness_sweep",
+    "nonlinear_vs_linear_translation",
 ]

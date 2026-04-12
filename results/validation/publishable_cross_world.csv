@@ -1,0 +1,11 @@
+pair,trivial,within_world_r2,transfer_r2,transfer_ratio
+memory vs planner,False,0.7204,0.0,0.0
+memory vs raw_control,False,0.8338,0.0,0.0
+memory vs reduced_descending,False,0.9931,0.3488,0.3512
+memory vs reflex_only,False,1.0,1.0,1.0
+planner vs raw_control,False,0.8594,0.0,0.0
+planner vs reduced_descending,False,0.7031,0.3609,0.5132
+planner vs reflex_only,False,1.0,1.0,1.0
+raw_control vs reduced_descending,False,0.525,0.4904,0.9342
+raw_control vs reflex_only,True,1.0,1.0,1.0
+reduced_descending vs reflex_only,False,1.0,1.0,1.0
