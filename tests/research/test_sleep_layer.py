@@ -1,7 +1,5 @@
-import json
 from pathlib import Path
 
-import numpy as np
 
 from flygym_research.cognition.body_reflex import BodylessBodyLayer
 from flygym_research.cognition.controllers import ReducedDescendingController

@@ -15,23 +15,23 @@ def cleanup_memory_bank(
 ) -> dict[str, Any]:
     decisions: dict[str, str] = {}
     grouped = defaultdict(list)
-    for artifact in artifacts:
-        grouped[artifact.metadata.get("source", artifact.artifact_id)].append(artifact)
+    for index, artifact in enumerate(artifacts):
+        grouped[artifact.metadata.get("source", artifact.artifact_id)].append((index, artifact))
 
     for group in grouped.values():
         group_sorted = sorted(
             group,
-            key=lambda artifact: artifact.validation.get("compression_gain", 0.0),
+            key=lambda item: item[1].validation.get("compression_gain", 0.0),
             reverse=True,
         )
-        best = group_sorted[0]
-        decisions[best.artifact_id] = "keep"
-        for artifact in group_sorted[1:]:
+        best_index, best = group_sorted[0]
+        decisions[f"{best.artifact_id}:{best_index}"] = "keep"
+        for artifact_index, artifact in group_sorted[1:]:
             score = drift_staleness_score(artifact.metadata, artifact.validation)
             if score["drift_staleness_score"] >= stale_threshold:
-                decisions[artifact.artifact_id] = "prune"
+                decisions[f"{artifact.artifact_id}:{artifact_index}"] = "prune"
             else:
-                decisions[artifact.artifact_id] = "demote_to_residual"
+                decisions[f"{artifact.artifact_id}:{artifact_index}"] = "demote_to_residual"
 
     return {
         "artifact_decisions": decisions,

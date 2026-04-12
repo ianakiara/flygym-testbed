@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from hashlib import sha1
 from pathlib import Path
 from typing import Any
@@ -121,7 +121,7 @@ def serialize_transition(transition: StepTransition) -> dict[str, Any]:
         },
         "action": {
             "type": action_type,
-            "payload": _normalize_value(transition.action.__dict__),
+            "payload": _normalize_value(asdict(transition.action)),
         },
     }
 
