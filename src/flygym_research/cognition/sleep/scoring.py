@@ -27,7 +27,7 @@ def _episodes_by_id(episodes: list[TraceEpisode]) -> dict[str, TraceEpisode]:
     return {episode.episode_id: episode for episode in episodes}
 
 
-def _mean_counterfactual_divergence(divergence: dict[str, object]) -> float:
+def _extract_counterfactual_divergence(divergence: dict[str, object]) -> float:
     if "mean_translation_divergence" in divergence:
         value = divergence["mean_translation_divergence"]
     elif "mean_reward_divergence" in divergence:
@@ -85,7 +85,7 @@ def backbone_shared_score(
                 {name: by_world[world_a][name] for name in common},
                 {name: by_world[world_b][name] for name in common},
             )
-            divergences.append(_mean_counterfactual_divergence(divergence))
+            divergences.append(_extract_counterfactual_divergence(divergence))
     scale_drift = float(np.mean(divergences)) if divergences else 0.0
     compression = compression_gain(len(members), 1)
     portability_fraction = float(

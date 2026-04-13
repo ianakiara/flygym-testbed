@@ -1208,7 +1208,10 @@ def stage_8_seam_stress(output_dir: Path) -> StageResult:
 
 
 def _candidate_is_stressed(candidate) -> bool:
-    return bool(candidate.evidence.get("ablation_channels")) or candidate.evidence.get("perturbation_tag") == "noisy"
+    return (
+        len(candidate.evidence.get("ablation_channels", [])) > 0
+        or candidate.evidence.get("perturbation_tag") == "noisy"
+    )
 
 
 def stage_9_shared_objectness(output_dir: Path) -> StageResult:

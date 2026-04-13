@@ -95,6 +95,9 @@ def benchmark_portable_replay(
                 for row in replay_rows
             ])
         ) if replay_rows else 0.0
+        # Map raw replay outcomes into a bounded transfer signal:
+        # - tanh(mean_return_lift / 25) keeps large return spikes from dominating
+        # - equal weighting keeps return and success lift balanced as co-primary signals
         functional_transfer_gain = float(
             np.clip(
                 0.5 * np.tanh(mean_return_lift / 25.0)

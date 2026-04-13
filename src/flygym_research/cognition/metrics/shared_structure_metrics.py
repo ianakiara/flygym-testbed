@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import numpy as np
 
+# Shared-structure regimes are intentionally conservative:
+# - coherent requires a clearly positive backbone score with low degeneracy
+# - degraded still requires portable support but tolerates mild score erosion
 COHERENT_BACKBONE_THRESHOLD = 0.2
 DEGENERACY_CEILING = 0.2
 DEGRADED_PORTABLE_FLOOR = 0.2

@@ -49,7 +49,7 @@ class SelectiveMemoryController(BrainInterface):
         distractor_flag = float(observation.world.info.get("distractor_active", False))
         focus = 1.0 - self.distractor_suppression * distractor_flag
         blended = focus * target_vector + (1.0 - focus) * (cue_vector + recall_bias)
-        if cue_vector.any():
+        if np.linalg.norm(cue_vector) > 1e-6:
             blended = 0.6 * blended + 0.4 * cue_vector
         move_intent = float(np.clip(blended[0] + 0.15 * recall_bias[0], -1.0, 1.0))
         turn_intent = float(np.clip(blended[1] + 0.15 * recall_bias[1] + 0.1 * context_key, -1.0, 1.0))

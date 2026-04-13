@@ -73,6 +73,15 @@ def _portable_signature(episode: TraceEpisode) -> tuple[str, tuple[str, ...], bo
     )
 
 
+def _default_portability_fraction(
+    redundancy_tier: str,
+    world_modes: list[str],
+) -> float:
+    if redundancy_tier in {"portable", "universal"} or len(world_modes) > 1:
+        return 1.0
+    return 0.0
+
+
 def build_equivalence_classes(
     episodes: list[TraceEpisode],
     *,
@@ -141,12 +150,12 @@ def candidate_from_cluster(
         "cluster_size": float(len(cluster)),
         "world_coverage": float(len(world_modes)),
     }
-    portability_fraction = 0.0
-    if redundancy_tier in {"portable", "universal"} or len(world_modes) > 1:
-        portability_fraction = 1.0
     portability = portability_evidence or {
         "world_modes": world_modes,
-        "portability_fraction": portability_fraction,
+        "portability_fraction": _default_portability_fraction(
+            redundancy_tier,
+            world_modes,
+        ),
         "supporting_local_candidates": [],
     }
     return SleepCandidate(

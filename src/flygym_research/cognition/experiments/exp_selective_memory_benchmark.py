@@ -15,7 +15,7 @@ from ..tasks import ConditionalSequenceTask, DelayedInterferenceTask, Distractor
 from .benchmark_harness import run_episode
 
 
-def _make_env(task_name: str):
+def _make_env(task_name: str) -> FlyBodyWorldEnv:
     cfg = EnvConfig(episode_steps=48)
     body = BodylessBodyLayer(config=BodyLayerConfig())
     if task_name == "distractor_cue_recall":

@@ -301,13 +301,16 @@ class TraceSegment:
         }
 
 
+ScoreComponent = float | str | bool
+
+
 @dataclass(slots=True)
 class SleepCandidate:
     candidate_id: str
     representative_episode_id: str
     member_episode_ids: list[str]
     evidence: dict[str, Any]
-    score_components: dict[str, float | str | bool]
+    score_components: dict[str, ScoreComponent]
     residual_episode_ids: list[str] = field(default_factory=list)
     redundancy_tier: str = "local"
     portability_evidence: dict[str, Any] = field(default_factory=dict)
