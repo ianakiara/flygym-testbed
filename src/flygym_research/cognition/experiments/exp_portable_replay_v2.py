@@ -47,7 +47,7 @@ def _consistency_filter(
     by_id = {ep.episode_id: ep for ep in episodes}
     members = [by_id[eid] for eid in candidate.member_episode_ids if eid in by_id]
     if len(members) < 2:
-        return True, 1.0
+        return False, 0.0
 
     by_world: dict[str, list[TraceEpisode]] = defaultdict(list)
     for m in members:

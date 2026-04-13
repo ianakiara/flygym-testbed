@@ -124,6 +124,19 @@ def backbone_shared_score(
         )
     )
     degeneracy_penalty = float(np.clip(q_red * (1.0 - mean_success), 0.0, 1.0))
+
+    # Honor explicit score_components overrides for synthetic/adversarial
+    # candidates whose transitions are shared with their source candidate.
+    # Real candidates don't have these keys in score_components.
+    if "seam_risk" in candidate.score_components:
+        seam_risk = float(candidate.score_components["seam_risk"])
+    if "interop_loss" in candidate.score_components:
+        interop_loss = float(candidate.score_components["interop_loss"])
+    if "scale_drift" in candidate.score_components:
+        scale_drift = float(candidate.score_components["scale_drift"])
+    if "degeneracy_penalty" in candidate.score_components:
+        degeneracy_penalty = float(candidate.score_components["degeneracy_penalty"])
+
     profile = shared_structure_profile(
         redundancy=redundancy,
         portability_fraction=portability_fraction,

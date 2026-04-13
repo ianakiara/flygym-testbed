@@ -63,9 +63,6 @@ def label_candidate_family(
         interop_losses.append(1.0 - float(interop.get("interoperability_score", 1.0)))
     mean_interop_loss = float(np.mean(interop_losses)) if interop_losses else 0.0
 
-    # World coverage
-    world_modes = {m.world_mode for m in members}
-
     # Score components
     scale_drift = float(candidate.score_components.get("scale_drift", 0.0))
     portability_frac = float(candidate.score_components.get("portability_fraction", 0.0))
@@ -81,13 +78,15 @@ def label_candidate_family(
         cross_world_variance = float(np.std(per_world_means))
 
     # Classification rules (ordered by specificity)
+    if degeneracy > 0.5:
+        return "degenerate_converger"
     if degeneracy > 0.25 and mean_interop_loss > 0.2:
         return "degenerate_converger"
     if mean_seam >= 0.2 and mean_interop_loss < 0.2:
         return "seam_fragile"
     if mean_interop_loss >= 0.25 and mean_seam < 0.15:
         return "private_only_coherent"
-    if scale_drift >= 0.2 or (len(world_modes) <= 1 and mean_seam < 0.15):
+    if scale_drift >= 0.2:
         return "scale_artifact"
     if portability_frac >= 0.34 and cross_world_variance > 0.3:
         return "transfer_fragile"

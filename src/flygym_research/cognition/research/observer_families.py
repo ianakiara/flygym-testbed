@@ -186,18 +186,24 @@ def perturb_partial(
     """Drop channels (partial observability) from body positions."""
     rng = rng or np.random.default_rng(42)
     result = []
+    drop_idx = None
+    feat_drop_keys: set[str] | None = None
     for t in transitions:
         pos = t.observation.raw_body.body_positions.copy()
-        n_bodies = pos.shape[0]
-        n_drop = max(1, int(n_bodies * drop_fraction))
-        drop_idx = rng.choice(n_bodies, size=n_drop, replace=False)
+        if drop_idx is None:
+            n_bodies = pos.shape[0]
+            n_drop = max(1, int(n_bodies * drop_fraction))
+            drop_idx = rng.choice(n_bodies, size=n_drop, replace=False)
         pos[drop_idx] = 0.0
 
         feats = dict(t.observation.summary.features)
-        feat_keys = list(feats.keys())
-        n_feat_drop = max(1, int(len(feat_keys) * drop_fraction))
-        for k in rng.choice(feat_keys, size=min(n_feat_drop, len(feat_keys)), replace=False):
-            feats[k] = 0.0
+        feat_keys = sorted(feats.keys())
+        if feat_drop_keys is None:
+            n_feat_drop = max(1, int(len(feat_keys) * drop_fraction))
+            feat_drop_keys = set(rng.choice(feat_keys, size=min(n_feat_drop, len(feat_keys)), replace=False))
+        for k in feat_keys:
+            if k in feat_drop_keys:
+                feats[k] = 0.0
 
         obs_dict = _copy_world_observables(
             dict(t.observation.world.observables), pos,
@@ -217,19 +223,25 @@ def perturb_masking(
     """Zero out entire dimensions of body positions."""
     rng = rng or np.random.default_rng(42)
     result = []
+    mask_dims = None
+    feat_mask_keys: set[str] | None = None
     for t in transitions:
         pos = t.observation.raw_body.body_positions.copy()
-        n_dims = pos.shape[1] if pos.ndim > 1 else 1
-        n_mask = max(1, int(n_dims * mask_fraction))
-        mask_dims = rng.choice(n_dims, size=n_mask, replace=False)
+        if mask_dims is None:
+            n_dims = pos.shape[1] if pos.ndim > 1 else 1
+            n_mask = max(1, int(n_dims * mask_fraction))
+            mask_dims = rng.choice(n_dims, size=n_mask, replace=False)
         if pos.ndim > 1:
             pos[:, mask_dims] = 0.0
 
         feats = dict(t.observation.summary.features)
-        feat_keys = list(feats.keys())
-        n_feat_mask = max(1, int(len(feat_keys) * mask_fraction))
-        for k in rng.choice(feat_keys, size=min(n_feat_mask, len(feat_keys)), replace=False):
-            feats[k] = 0.0
+        feat_keys = sorted(feats.keys())
+        if feat_mask_keys is None:
+            n_feat_mask = max(1, int(len(feat_keys) * mask_fraction))
+            feat_mask_keys = set(rng.choice(feat_keys, size=min(n_feat_mask, len(feat_keys)), replace=False))
+        for k in feat_keys:
+            if k in feat_mask_keys:
+                feats[k] = 0.0
 
         obs_dict = _copy_world_observables(
             dict(t.observation.world.observables), pos,
