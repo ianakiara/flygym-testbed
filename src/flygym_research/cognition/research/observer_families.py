@@ -261,6 +261,7 @@ def perturb_permutation(
     rng = rng or np.random.default_rng(42)
     result = []
     perm = None
+    feat_perm = None
     for t in transitions:
         pos = t.observation.raw_body.body_positions.copy()
         if perm is None:
@@ -293,6 +294,7 @@ def perturb_sign_flip(
     rng = rng or np.random.default_rng(42)
     result = []
     flip_mask = None
+    feat_flip_keys: set[str] | None = None
     for t in transitions:
         pos = t.observation.raw_body.body_positions.copy()
         if flip_mask is None:
