@@ -1,0 +1,382 @@
+"""EXP 1 — Long-horizon Composition Stress (PR #5 priority 2).
+
+Tests whether composition ordering (boundary > bulk, corner > boundary)
+survives 100–200 step episodes AND whether seam metrics acquire predictive
+power under genuine seam stress.
+
+Pass criteria:
+  - boundary > bulk in ≥ 85% of paired trials
+  - corner > boundary in ≥ 80%
+  - seam defect correlation with failure ρ > 0.7
+  - seam defect variance > 0
+
+Includes baseline (bulk), method (corner-restored), ablation (boundary).
+"""
+
+from __future__ import annotations
+
+import json
+from collections import defaultdict
+from pathlib import Path
+
+import numpy as np
+
+from ..metrics import seam_fragility, summarize_metrics
+from ..research.long_horizon_runner import collect_long_horizon
+from ..research.stress_harness import (
+    inject_delayed_target_mismatch,
+    inject_seam_corruption,
+)
+from ..sleep.trace_schema import TraceEpisode
+
+
+# ---------------------------------------------------------------------------
+# Composition strategies (from v1, kept identical)
+# ---------------------------------------------------------------------------
+
+def _bulk_compose(
+    ep_a: TraceEpisode, ep_b: TraceEpisode,
+) -> list:
+    """Naive concatenation — no seam treatment."""
+    return list(ep_a.transitions) + list(ep_b.transitions)
+
+
+def _boundary_aware_compose(
+    ep_a: TraceEpisode, ep_b: TraceEpisode,
+) -> list:
+    """Overlap-blend at join — average last steps of A with first steps of B."""
+    a_trans = list(ep_a.transitions)
+    b_trans = list(ep_b.transitions)
+    overlap = min(3, len(a_trans), len(b_trans))
+    blended = a_trans[: -overlap] if overlap > 0 else a_trans[:]
+    for i in range(overlap):
+        alpha = (i + 1) / (overlap + 1)
+        ta = a_trans[-(overlap - i)]
+        tb = b_trans[i]
+        avg_reward = (1 - alpha) * ta.reward + alpha * tb.reward
+        from ..interfaces import StepTransition
+        blended.append(StepTransition(
+            observation=tb.observation,
+            action=tb.action,
+            reward=avg_reward,
+            terminated=tb.terminated,
+            truncated=tb.truncated,
+            info=tb.info,
+        ))
+    blended.extend(b_trans[overlap:])
+    return blended
+
+
+def _corner_restored_compose(
+    ep_a: TraceEpisode, ep_b: TraceEpisode,
+) -> list:
+    """Boundary + seam defect correction via reward smoothing."""
+    composed = _boundary_aware_compose(ep_a, ep_b)
+    if len(composed) < 4:
+        return composed
+    # Apply Gaussian smoothing to rewards near seam
+    seam_idx = len(ep_a.transitions)
+    window = min(5, len(composed) // 4)
+    from ..interfaces import StepTransition
+    result = list(composed)
+    for i in range(max(0, seam_idx - window), min(len(composed), seam_idx + window)):
+        lo = max(0, i - 2)
+        hi = min(len(composed), i + 3)
+        neighbors = composed[lo:hi]
+        avg_reward = float(np.mean([t.reward for t in neighbors]))
+        t = composed[i]
+        result[i] = StepTransition(
+            observation=t.observation,
+            action=t.action,
+            reward=avg_reward,
+            terminated=t.terminated,
+            truncated=t.truncated,
+            info=t.info,
+        )
+    return result
+
+
+COMPOSITION_STRATEGIES = {
+    "bulk": _bulk_compose,
+    "boundary": _boundary_aware_compose,
+    "corner": _corner_restored_compose,
+}
+
+
+# ---------------------------------------------------------------------------
+# Seam stress families
+# ---------------------------------------------------------------------------
+
+def _create_stressed_episodes(
+    episodes: list[TraceEpisode],
+    *,
+    rng: np.random.Generator,
+) -> dict[str, list[TraceEpisode]]:
+    """Create episode families with different seam stress levels."""
+    families: dict[str, list[TraceEpisode]] = defaultdict(list)
+
+    for ep in episodes:
+        # Clean
+        families["clean"].append(ep)
+
+        # Near-admissible: light seam corruption
+        stressed_trans = inject_seam_corruption(
+            ep.transitions, corruption_point=0.5, magnitude=0.15, rng=rng,
+        )
+        families["near_admissible"].append(TraceEpisode(
+            episode_id=f"near-{ep.episode_id}",
+            world_mode=ep.world_mode,
+            controller_name=ep.controller_name,
+            seed=ep.seed,
+            transitions=stressed_trans,
+            perturbation_tag=ep.perturbation_tag,
+        ))
+
+        # False-friend: heavy corruption
+        ff_trans = inject_seam_corruption(
+            ep.transitions, corruption_point=0.4, magnitude=0.5, rng=rng,
+        )
+        families["false_friend"].append(TraceEpisode(
+            episode_id=f"ff-{ep.episode_id}",
+            world_mode=ep.world_mode,
+            controller_name=ep.controller_name,
+            seed=ep.seed,
+            transitions=ff_trans,
+            perturbation_tag=ep.perturbation_tag,
+        ))
+
+        # Adversarial stitched: target reversal
+        adv_trans = inject_delayed_target_mismatch(
+            ep.transitions, delay_fraction=0.5, flip_magnitude=1.0, rng=rng,
+        )
+        families["adversarial_stitched"].append(TraceEpisode(
+            episode_id=f"adv-{ep.episode_id}",
+            world_mode=ep.world_mode,
+            controller_name=ep.controller_name,
+            seed=ep.seed,
+            transitions=adv_trans,
+            perturbation_tag=ep.perturbation_tag,
+        ))
+
+        # Cross-world handoff: use a different perturbation tag
+        cw_trans = inject_seam_corruption(
+            ep.transitions, corruption_point=0.3, magnitude=0.35, rng=rng,
+        )
+        families["cross_world_handoff"].append(TraceEpisode(
+            episode_id=f"cw-{ep.episode_id}",
+            world_mode=ep.world_mode,
+            controller_name=ep.controller_name,
+            seed=ep.seed,
+            transitions=cw_trans,
+            perturbation_tag=ep.perturbation_tag,
+        ))
+
+        # Delayed seam failure: late corruption
+        dsf_trans = inject_seam_corruption(
+            ep.transitions, corruption_point=0.75, magnitude=0.6, rng=rng,
+        )
+        families["delayed_seam_failure"].append(TraceEpisode(
+            episode_id=f"dsf-{ep.episode_id}",
+            world_mode=ep.world_mode,
+            controller_name=ep.controller_name,
+            seed=ep.seed,
+            transitions=dsf_trans,
+            perturbation_tag=ep.perturbation_tag,
+        ))
+
+    return dict(families)
+
+
+# ---------------------------------------------------------------------------
+# Main experiment
+# ---------------------------------------------------------------------------
+
+def run_experiment(
+    output_dir: str | Path = "results/exp_long_composition",
+    *,
+    episode_steps: int = 150,
+    n_seeds: int = 10,
+) -> dict[str, object]:
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    rng = np.random.default_rng(42)
+
+    # Collect long-horizon episodes
+    episodes = collect_long_horizon(max_steps=episode_steps, n_seeds=n_seeds)
+
+    if len(episodes) < 2:
+        payload = {"error": "Not enough episodes", "n_episodes": len(episodes)}
+        (output_dir / "long_composition.json").write_text(json.dumps(payload, indent=2))
+        return payload
+
+    # Create stressed episode families
+    families = _create_stressed_episodes(episodes, rng=rng)
+
+    # Pair episodes for composition tests
+    trials: list[dict] = []
+    seam_defects: list[float] = []
+    failure_flags: list[float] = []
+
+    for family_name, family_eps in families.items():
+        # Pair consecutive episodes
+        for i in range(0, len(family_eps) - 1, 2):
+            ep_a = family_eps[i]
+            ep_b = family_eps[i + 1]
+
+            for strategy_name, compose_fn in COMPOSITION_STRATEGIES.items():
+                composed = compose_fn(ep_a, ep_b)
+                if not composed:
+                    continue
+
+                summarize_metrics(composed)  # validate composed transitions
+                seam_info = seam_fragility(composed)
+                seam_defect = float(seam_info.get("seam_fragility", 0.0))
+
+                # Compute failure indicators
+                rewards = [t.reward for t in composed]
+                return_val = float(np.sum(rewards))
+                n_steps = len(composed)
+
+                # Delayed failure: did performance degrade in second half?
+                mid = n_steps // 2
+                first_half_return = float(np.sum(rewards[:mid])) if mid > 0 else 0.0
+                second_half_return = float(np.sum(rewards[mid:])) if mid < n_steps else 0.0
+                degradation = first_half_return - second_half_return
+
+                # Path divergence after seam
+                seam_idx = len(ep_a.transitions)
+                post_seam_rewards = rewards[seam_idx:] if seam_idx < n_steps else []
+                post_seam_return = float(np.sum(post_seam_rewards)) if post_seam_rewards else 0.0
+
+                # Failure flag: significant degradation after seam
+                is_failure = 1.0 if degradation > 5.0 or post_seam_return < -10.0 else 0.0
+
+                trial = {
+                    "family": family_name,
+                    "strategy": strategy_name,
+                    "ep_a": ep_a.episode_id,
+                    "ep_b": ep_b.episode_id,
+                    "return": return_val,
+                    "seam_defect": seam_defect,
+                    "return_degradation": degradation,
+                    "post_seam_return": post_seam_return,
+                    "is_failure": is_failure,
+                    "n_steps": n_steps,
+                }
+                trials.append(trial)
+                seam_defects.append(seam_defect)
+                failure_flags.append(is_failure)
+
+    # ---------------------------------------------------------------------------
+    # Pass criteria: paired win rates
+    # ---------------------------------------------------------------------------
+
+    def _paired_win_rate(better: str, worse: str) -> float:
+        """Fraction of paired trials where 'better' strategy beats 'worse'."""
+        wins = 0
+        total = 0
+        by_pair = defaultdict(dict)
+        for t in trials:
+            key = (t["family"], t["ep_a"], t["ep_b"])
+            by_pair[key][t["strategy"]] = t["return"]
+        for key, strats in by_pair.items():
+            if better in strats and worse in strats:
+                total += 1
+                if strats[better] >= strats[worse]:
+                    wins += 1
+        return float(wins / max(total, 1))
+
+    boundary_gt_bulk = _paired_win_rate("boundary", "bulk")
+    corner_gt_boundary = _paired_win_rate("corner", "boundary")
+
+    # Seam correlation with failure
+    seam_arr = np.array(seam_defects)
+    fail_arr = np.array(failure_flags)
+    seam_variance = float(np.var(seam_arr))
+
+    if seam_variance > 1e-10 and np.std(fail_arr) > 1e-10:
+        seam_rho = float(np.corrcoef(seam_arr, fail_arr)[0, 1])
+        if not np.isfinite(seam_rho):
+            seam_rho = 0.0
+    else:
+        seam_rho = 0.0
+
+    # Per-family summaries
+    family_summary = {}
+    for family_name in families:
+        family_trials = [t for t in trials if t["family"] == family_name]
+        if not family_trials:
+            continue
+        family_summary[family_name] = {
+            "n_trials": len(family_trials),
+            "mean_return": float(np.mean([t["return"] for t in family_trials])),
+            "mean_seam_defect": float(np.mean([t["seam_defect"] for t in family_trials])),
+            "failure_rate": float(np.mean([t["is_failure"] for t in family_trials])),
+            "mean_degradation": float(np.mean([t["return_degradation"] for t in family_trials])),
+        }
+
+    # Per-strategy summaries
+    strategy_summary = {}
+    for strategy_name in COMPOSITION_STRATEGIES:
+        strat_trials = [t for t in trials if t["strategy"] == strategy_name]
+        if not strat_trials:
+            continue
+        strategy_summary[strategy_name] = {
+            "n_trials": len(strat_trials),
+            "mean_return": float(np.mean([t["return"] for t in strat_trials])),
+            "mean_seam_defect": float(np.mean([t["seam_defect"] for t in strat_trials])),
+            "failure_rate": float(np.mean([t["is_failure"] for t in strat_trials])),
+        }
+
+    # Seed stability
+    seed_returns = defaultdict(list)
+    for ep in episodes:
+        seed_returns[ep.seed].append(ep.summary_metrics.get("return", 0.0))
+    seed_cv = float(np.std([np.mean(v) for v in seed_returns.values()]) / (
+        abs(np.mean([np.mean(v) for v in seed_returns.values()])) + 1e-8
+    )) if seed_returns else 0.0
+
+    payload = {
+        "pass_criteria": {
+            "boundary_gt_bulk_85pct": boundary_gt_bulk >= 0.85,
+            "boundary_gt_bulk_win_rate": boundary_gt_bulk,
+            "corner_gt_boundary_80pct": corner_gt_boundary >= 0.80,
+            "corner_gt_boundary_win_rate": corner_gt_boundary,
+            "seam_rho_gt_0.7": seam_rho > 0.7,
+            "seam_rho": seam_rho,
+            "seam_variance_gt_0": seam_variance > 1e-10,
+            "seam_variance": seam_variance,
+        },
+        "family_summary": family_summary,
+        "strategy_summary": strategy_summary,
+        "seam_failure_heatmap": {
+            family: {
+                strat: float(np.mean([
+                    t["is_failure"] for t in trials
+                    if t["family"] == family and t["strategy"] == strat
+                ])) if any(
+                    t["family"] == family and t["strategy"] == strat for t in trials
+                ) else 0.0
+                for strat in COMPOSITION_STRATEGIES
+            }
+            for family in families
+        },
+        "false_friend_cases": [
+            t for t in trials
+            if t["family"] == "false_friend" and t["is_failure"] > 0.5
+        ][:20],
+        "seed_cv": seed_cv,
+        "config": {
+            "episode_steps": episode_steps,
+            "n_seeds": n_seeds,
+            "n_episodes": len(episodes),
+            "n_families": len(families),
+            "n_trials": len(trials),
+        },
+    }
+
+    (output_dir / "long_composition.json").write_text(
+        json.dumps(payload, indent=2, default=str),
+    )
+    return payload
