@@ -46,6 +46,10 @@ from .publishable_metrics import (
     noise_robustness_sweep,
     nonlinear_vs_linear_translation,
 )
+from .shared_structure_metrics import (
+    shared_structure_profile,
+    transfer_hierarchy,
+)
 from .quotient_metrics import (
     counterfactual_divergence,
     degeneracy_score,
@@ -103,6 +107,8 @@ __all__ = [
     "full_publishable_analysis",
     "noise_robustness_sweep",
     "nonlinear_vs_linear_translation",
+    "shared_structure_profile",
+    "transfer_hierarchy",
     "compression_gain",
     "drift_staleness_score",
     "post_compression_robustness_delta",

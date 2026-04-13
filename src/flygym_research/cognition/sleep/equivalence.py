@@ -9,7 +9,6 @@ from ..metrics.sleep_metrics import trajectory_equivalence_strength
 from .trace_schema import SleepCandidate, TraceEpisode, TraceSegment
 
 
-
 def segment_episode(
     episode: TraceEpisode,
     *,
@@ -39,7 +38,6 @@ def segment_episode(
     return segments
 
 
-
 def collect_segments(
     episodes: list[TraceEpisode],
     *,
@@ -53,15 +51,12 @@ def collect_segments(
     ]
 
 
-
 def _success_signature(episode: TraceEpisode) -> bool:
     return any(transition.terminated for transition in episode.transitions)
 
 
-
-def _cluster_key(
-    episode: TraceEpisode,
-) -> tuple[str, str, tuple[str, ...], bool]:
+def _local_cluster_key(episode: TraceEpisode) -> tuple[str, str, tuple[str, ...], bool]:
+    """Key for same-world clustering before cross-world consolidation."""
     return (
         episode.world_mode,
         episode.perturbation_tag,
@@ -69,6 +64,22 @@ def _cluster_key(
         _success_signature(episode),
     )
 
+
+def _portable_signature(episode: TraceEpisode) -> tuple[str, tuple[str, ...], bool]:
+    return (
+        episode.perturbation_tag,
+        episode.ablation_channels,
+        _success_signature(episode),
+    )
+
+
+def _default_portability_fraction(
+    redundancy_tier: str,
+    world_modes: list[str],
+) -> float:
+    if redundancy_tier in {"portable", "universal"} or len(world_modes) > 1:
+        return 1.0
+    return 0.0
 
 
 def build_equivalence_classes(
@@ -78,7 +89,7 @@ def build_equivalence_classes(
 ) -> list[list[TraceEpisode]]:
     grouped: dict[tuple[str, str, tuple[str, ...], bool], list[TraceEpisode]] = defaultdict(list)
     for episode in episodes:
-        grouped[_cluster_key(episode)].append(episode)
+        grouped[_local_cluster_key(episode)].append(episode)
 
     classes: list[list[TraceEpisode]] = []
     for group in grouped.values():
@@ -101,8 +112,12 @@ def build_equivalence_classes(
     return classes
 
 
-
-def candidate_from_cluster(cluster: list[TraceEpisode]) -> SleepCandidate:
+def candidate_from_cluster(
+    cluster: list[TraceEpisode],
+    *,
+    redundancy_tier: str = "local",
+    portability_evidence: dict[str, Any] | None = None,
+) -> SleepCandidate:
     representative = max(
         cluster,
         key=lambda episode: episode.summary_metrics.get("return", 0.0),
@@ -117,19 +132,31 @@ def candidate_from_cluster(cluster: list[TraceEpisode]) -> SleepCandidate:
                 episode.transitions,
             )
         )
+    world_modes = sorted({episode.world_mode for episode in cluster})
     evidence: dict[str, Any] = {
         "cluster_size": len(cluster),
         "world_mode": representative.world_mode,
+        "world_modes": world_modes,
         "perturbation_tag": representative.perturbation_tag,
         "pairwise_scores": pairwise_scores,
+        "ablation_channels": list(representative.ablation_channels),
     }
+    if portability_evidence:
+        evidence.update(portability_evidence)
     score_components = {
         "mean_equivalence_strength": float(
             np.mean([s["trajectory_equivalence_strength"] for s in pairwise_scores])
-        )
-        if pairwise_scores
-        else 1.0,
+        ) if pairwise_scores else 1.0,
         "cluster_size": float(len(cluster)),
+        "world_coverage": float(len(world_modes)),
+    }
+    portability = portability_evidence or {
+        "world_modes": world_modes,
+        "portability_fraction": _default_portability_fraction(
+            redundancy_tier,
+            world_modes,
+        ),
+        "supporting_local_candidates": [],
     }
     return SleepCandidate(
         candidate_id=f"cand-{representative.episode_id}",
@@ -137,8 +164,73 @@ def candidate_from_cluster(cluster: list[TraceEpisode]) -> SleepCandidate:
         member_episode_ids=[episode.episode_id for episode in cluster],
         evidence=evidence,
         score_components=score_components,
+        redundancy_tier=redundancy_tier,
+        portability_evidence=portability,
     )
 
+
+def consolidate_redundancy_tiers(
+    local_candidates: list[SleepCandidate],
+    episodes: list[TraceEpisode],
+    *,
+    min_equivalence_strength: float = 0.55,
+) -> list[SleepCandidate]:
+    by_id = {episode.episode_id: episode for episode in episodes}
+    total_worlds = sorted({episode.world_mode for episode in episodes})
+    grouped: dict[tuple[str, tuple[str, ...], bool], list[list[SleepCandidate]]] = defaultdict(list)
+
+    for candidate in local_candidates:
+        representative = by_id[candidate.representative_episode_id]
+        signature = _portable_signature(representative)
+        placed = False
+        for bucket in grouped[signature]:
+            exemplar = by_id[bucket[0].representative_episode_id]
+            score = trajectory_equivalence_strength(
+                exemplar.transitions,
+                representative.transitions,
+            )["trajectory_equivalence_strength"]
+            if score >= min_equivalence_strength:
+                bucket.append(candidate)
+                placed = True
+                break
+        if not placed:
+            grouped[signature].append([candidate])
+
+    consolidated: list[SleepCandidate] = []
+    for buckets in grouped.values():
+        for bucket in buckets:
+            member_ids = sorted({episode_id for candidate in bucket for episode_id in candidate.member_episode_ids})
+            cluster = [by_id[episode_id] for episode_id in member_ids]
+            world_modes = sorted({episode.world_mode for episode in cluster})
+            portability_fraction = len(world_modes) / max(len(total_worlds), 1)
+            if len(world_modes) == len(total_worlds) and len(world_modes) > 1:
+                redundancy_tier = "universal"
+            elif len(world_modes) > 1:
+                redundancy_tier = "portable"
+            else:
+                redundancy_tier = "local"
+            candidate = candidate_from_cluster(
+                cluster,
+                redundancy_tier=redundancy_tier,
+                portability_evidence={
+                    "world_modes": world_modes,
+                    "total_worlds": total_worlds,
+                    "portability_fraction": portability_fraction,
+                    "supporting_local_candidates": [item.candidate_id for item in bucket],
+                },
+            )
+            candidate.residual_episode_ids = sorted(
+                {episode_id for item in bucket for episode_id in item.residual_episode_ids}
+            )
+            candidate.retained_exception_rationale = {
+                key: value
+                for item in bucket
+                for key, value in item.retained_exception_rationale.items()
+            }
+            candidate.evidence["local_cluster_ids"] = [item.candidate_id for item in bucket]
+            candidate.score_components["portability_fraction"] = portability_fraction
+            consolidated.append(candidate)
+    return consolidated
 
 
 def extract_sleep_candidates(
@@ -146,10 +238,15 @@ def extract_sleep_candidates(
     *,
     min_equivalence_strength: float = 0.55,
 ) -> list[SleepCandidate]:
-    return [
+    local_candidates = [
         candidate_from_cluster(cluster)
         for cluster in build_equivalence_classes(
             episodes,
             min_equivalence_strength=min_equivalence_strength,
         )
     ]
+    return consolidate_redundancy_tiers(
+        local_candidates,
+        episodes,
+        min_equivalence_strength=min_equivalence_strength,
+    )

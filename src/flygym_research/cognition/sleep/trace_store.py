@@ -4,7 +4,17 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .trace_schema import SleepArtifact, SleepCandidate, TraceEpisode
+from .trace_schema import ScoreComponent, SleepArtifact, SleepCandidate, TraceEpisode
+
+
+def _coerce_score_component(value: Any) -> ScoreComponent:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        return value
+    raise TypeError(f"Unsupported score component type: {type(value).__name__}")
 
 
 class TraceStore:
@@ -46,7 +56,6 @@ class TraceStore:
         self,
         filename: str = "sleep_artifact.json",
     ) -> SleepArtifact:
-        """Load a previously saved sleep artifact from JSON."""
         payload = json.loads((self.root / filename).read_text())
         candidates = [
             SleepCandidate(
@@ -55,13 +64,15 @@ class TraceStore:
                 member_episode_ids=c["member_episode_ids"],
                 evidence=c["evidence"],
                 score_components={
-                    str(k): float(v) for k, v in c["score_components"].items()
+                    str(k): _coerce_score_component(v)
+                    for k, v in c["score_components"].items()
                 },
                 residual_episode_ids=c.get("residual_episode_ids", []),
+                redundancy_tier=c.get("redundancy_tier", "local"),
+                portability_evidence=c.get("portability_evidence", {}),
+                functional_utility={str(k): float(v) for k, v in c.get("functional_utility", {}).items()},
                 decision=c.get("decision", "review"),
-                retained_exception_rationale=c.get(
-                    "retained_exception_rationale", {}
-                ),
+                retained_exception_rationale=c.get("retained_exception_rationale", {}),
             )
             for c in payload["candidates"]
         ]

@@ -6,10 +6,15 @@ from flygym_research.cognition.body_reflex import BodylessBodyLayer
 from flygym_research.cognition.controllers import ReducedDescendingController
 from flygym_research.cognition.envs import FlyAvatarEnv
 from flygym_research.cognition.experiments import run_episode
+from flygym_research.cognition.experiments.exp_composition_gluing import run_experiment as run_composition_gluing
 from flygym_research.cognition.experiments.exp_drift_cleanup import run_experiment as run_drift_cleanup
 from flygym_research.cognition.experiments.exp_interop_alignment import run_experiment as run_interop_alignment
+from flygym_research.cognition.experiments.exp_learned_repairability import run_experiment as run_learned_repairability
 from flygym_research.cognition.experiments.exp_memory_closure import run_experiment as run_memory_closure
+from flygym_research.cognition.experiments.exp_portable_replay_benchmark import run_experiment as run_portable_replay
 from flygym_research.cognition.experiments.exp_seam_repair import run_experiment as run_seam_repair
+from flygym_research.cognition.experiments.exp_selective_memory_benchmark import run_experiment as run_selective_memory
+from flygym_research.cognition.experiments.exp_sleep_retention_policy import run_experiment as run_retention_policy
 from flygym_research.cognition.experiments.exp_sleep_trace_compressor import (
     collect_trace_bank,
     run_experiment as run_sleep_trace_compressor,
@@ -26,11 +31,14 @@ from flygym_research.cognition.sleep import (
     TraceEpisode,
     TraceStore,
     analyze_seam_failures,
+    backbone_shared_score,
+    benchmark_portable_replay,
     build_alignment_registry,
     build_memory_packets,
     cleanup_memory_bank,
     compress_trace_bank,
     extract_sleep_candidates,
+    safe_compression_score,
 )
 
 
@@ -72,6 +80,7 @@ class TestSleepTraceSchemaAndStore:
         assert loaded.compressed_episode_ids == artifact.compressed_episode_ids
         assert loaded.residual_episode_ids == artifact.residual_episode_ids
         assert len(loaded.candidates) == len(artifact.candidates)
+        assert loaded.candidates[0].score_components["shared_structure_regime"] == artifact.candidates[0].score_components["shared_structure_regime"]
 
 
 class TestSleepCompression:
@@ -90,6 +99,21 @@ class TestSleepCompression:
         assert artifact.validation["compression_gain"] >= 0.0
         assert artifact.artifact_id.startswith("sleep-")
         assert artifact.reports["summary"]["n_candidates"] >= 1
+
+
+    def test_candidates_include_redundancy_tiers(self):
+        episodes = collect_trace_bank(
+            seeds=[0],
+            world_modes=["avatar_remapped", "simplified_embodied", "native_physical"],
+            ablations=[frozenset()],
+            perturbation_tags=["baseline"],
+            max_steps=10,
+        )
+        artifact = compress_trace_bank(episodes, config=CompressionConfig(min_equivalence_strength=0.1))
+        tiers = {candidate.redundancy_tier for candidate in artifact.candidates}
+        assert tiers <= {"local", "portable", "universal"}
+        assert all("backbone_shared_score" in candidate.score_components for candidate in artifact.candidates)
+        assert all("safe_compression_score" in candidate.score_components for candidate in artifact.candidates)
 
 
 class TestSleepProcesses:
@@ -124,6 +148,20 @@ class TestSleepProcesses:
         assert cleanup["n_kept"] == 1
 
 
+    def test_portable_replay_updates_functional_utility(self):
+        episodes = collect_trace_bank(
+            seeds=[0],
+            world_modes=["avatar_remapped", "simplified_embodied", "native_physical"],
+            ablations=[frozenset()],
+            perturbation_tags=["baseline"],
+            max_steps=10,
+        )
+        artifact = compress_trace_bank(episodes)
+        replay = benchmark_portable_replay(episodes, artifact)
+        assert replay["summary"]["n_candidates"] >= 1
+        assert all("functional_transfer_gain" in candidate.functional_utility for candidate in artifact.candidates)
+
+
 class TestSleepMetrics:
     def test_sleep_metrics_return_reasonable_values(self):
         left = _make_episode(seed=0)
@@ -135,6 +173,12 @@ class TestSleepMetrics:
         assert 0.0 <= drift["drift_staleness_score"] <= 1.0
         repair = repairability_score({"n_failures": 3, "n_patchable_failures": 2})
         assert repair["repairability_score"] == pytest.approx(2 / 3)
+        artifact = compress_trace_bank([left, right], config=CompressionConfig(min_equivalence_strength=0.1))
+        score = backbone_shared_score(artifact.candidates[0], [left, right])
+        baseline = safe_compression_score(artifact.candidates[0], [left, right])
+        assert "backbone_shared_score" in score
+        assert "safe_compression_score" in baseline
+        assert baseline["safe_compression_score"] != score["backbone_shared_score"]
 
     def test_repairability_score_edge_cases(self):
         # Zero failures → perfect score
@@ -170,12 +214,22 @@ class TestSleepExperiments:
         alignment = run_interop_alignment(tmp_path / "interop")
         packets = run_memory_closure(tmp_path / "closure")
         cleanup = run_drift_cleanup(tmp_path / "drift")
+        portable = run_portable_replay(tmp_path / "portable")
+        retention = run_retention_policy(tmp_path / "retention")
+        memory = run_selective_memory(tmp_path / "memory")
+        repairability = run_learned_repairability(tmp_path / "repairability")
+        composition = run_composition_gluing(tmp_path / "composition")
 
         assert summary["artifact"]["artifact_id"].startswith("sleep-")
         assert "n_failures" in seam
         assert alignment["n_approved"] + alignment["n_rejected"] >= 1
         assert packets["n_packets"] >= 1
         assert cleanup["n_kept"] == 1
+        assert portable["portable_replay"]["summary"]["n_candidates"] >= 1
+        assert retention["n_candidates"] >= 1
+        assert memory["summary_rows"]
+        assert "learned_beats_baseline" in repairability or repairability["status"] == "insufficient_data"
+        assert composition["summary"]
         report_path = tmp_path / "compressor" / "sleep_report.md"
         assert report_path.exists()
         assert "Sleep Artifact" in report_path.read_text()

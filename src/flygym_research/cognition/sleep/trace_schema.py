@@ -18,7 +18,6 @@ from ..interfaces import (
 )
 from ..metrics import summarize_metrics
 
-
 ArrayLikeKeys = {
     "target_vector",
     "target_xy_mm",
@@ -38,6 +37,7 @@ ArrayLikeKeys = {
     "actuator_forces",
     "actuator_inputs",
     "adhesion_states",
+    "cue_vector",
 }
 
 
@@ -53,12 +53,10 @@ def _normalize_value(value: Any) -> Any:
     return value
 
 
-
 def _maybe_array(key: str, value: Any) -> Any:
     if key in ArrayLikeKeys and isinstance(value, list):
         return np.array(value, dtype=np.float64)
     return value
-
 
 
 def serialize_transition(transition: StepTransition) -> dict[str, Any]:
@@ -126,30 +124,21 @@ def serialize_transition(transition: StepTransition) -> dict[str, Any]:
     }
 
 
-
 def deserialize_transition(payload: dict[str, Any]) -> StepTransition:
     raw_payload = payload["observation"]["raw_body"]
     raw_body = RawBodyFeedback(
         time=float(raw_payload["time"]),
         joint_angles=_maybe_array("joint_angles", raw_payload["joint_angles"]),
-        joint_velocities=_maybe_array(
-            "joint_velocities", raw_payload["joint_velocities"]
-        ),
+        joint_velocities=_maybe_array("joint_velocities", raw_payload["joint_velocities"]),
         body_positions=_maybe_array("body_positions", raw_payload["body_positions"]),
         body_rotations=_maybe_array("body_rotations", raw_payload["body_rotations"]),
         contact_active=_maybe_array("contact_active", raw_payload["contact_active"]),
         contact_forces=_maybe_array("contact_forces", raw_payload["contact_forces"]),
         contact_torques=_maybe_array("contact_torques", raw_payload["contact_torques"]),
-        contact_positions=_maybe_array(
-            "contact_positions", raw_payload["contact_positions"]
-        ),
+        contact_positions=_maybe_array("contact_positions", raw_payload["contact_positions"]),
         contact_normals=_maybe_array("contact_normals", raw_payload["contact_normals"]),
-        contact_tangents=_maybe_array(
-            "contact_tangents", raw_payload["contact_tangents"]
-        ),
-        actuator_forces=_maybe_array(
-            "actuator_forces", raw_payload["actuator_forces"]
-        ),
+        contact_tangents=_maybe_array("contact_tangents", raw_payload["contact_tangents"]),
+        actuator_forces=_maybe_array("actuator_forces", raw_payload["actuator_forces"]),
     )
     summary_payload = payload["observation"]["summary"]
     summary = AscendingSummary(
@@ -164,10 +153,7 @@ def deserialize_transition(payload: dict[str, Any]) -> StepTransition:
         reward=float(world_payload["reward"]),
         terminated=bool(world_payload["terminated"]),
         truncated=bool(world_payload["truncated"]),
-        observables={
-            str(k): _maybe_array(str(k), v)
-            for k, v in world_payload["observables"].items()
-        },
+        observables={str(k): _maybe_array(str(k), v) for k, v in world_payload["observables"].items()},
         info=world_payload.get("info", {}),
     )
     observation = BrainObservation(
@@ -183,9 +169,7 @@ def deserialize_transition(payload: dict[str, Any]) -> StepTransition:
         raw_action = action_payload["payload"]
         action = RawControlCommand(
             actuator_inputs=_maybe_array("actuator_inputs", raw_action["actuator_inputs"]),
-            adhesion_states=_maybe_array(
-                "adhesion_states", raw_action.get("adhesion_states")
-            )
+            adhesion_states=_maybe_array("adhesion_states", raw_action.get("adhesion_states"))
             if raw_action.get("adhesion_states") is not None
             else None,
             metadata=raw_action.get("metadata", {}),
@@ -200,7 +184,6 @@ def deserialize_transition(payload: dict[str, Any]) -> StepTransition:
     )
 
 
-
 def _episode_id(
     controller_name: str,
     world_mode: str,
@@ -208,9 +191,13 @@ def _episode_id(
     ablation_channels: tuple[str, ...],
     perturbation_tag: str,
 ) -> str:
-    raw = "|".join(
-        [controller_name, world_mode, str(seed), ",".join(ablation_channels), perturbation_tag]
-    )
+    raw = "|".join([
+        controller_name,
+        world_mode,
+        str(seed),
+        ",".join(ablation_channels),
+        perturbation_tag,
+    ])
     digest = sha1(raw.encode("utf-8")).hexdigest()[:12]
     return f"ep-{digest}"
 
@@ -271,9 +258,7 @@ class TraceEpisode:
             seed=int(payload["seed"]),
             ablation_channels=tuple(payload.get("ablation_channels", [])),
             perturbation_tag=payload.get("perturbation_tag", "baseline"),
-            controller_state={
-                str(k): float(v) for k, v in payload.get("controller_state", {}).items()
-            },
+            controller_state={str(k): float(v) for k, v in payload.get("controller_state", {}).items()},
             body_state={str(k): float(v) for k, v in payload.get("body_state", {}).items()},
             metadata=payload.get("metadata", {}),
             transitions=[deserialize_transition(t) for t in payload["transitions"]],
@@ -316,14 +301,20 @@ class TraceSegment:
         }
 
 
+ScoreComponent = float | str | bool
+
+
 @dataclass(slots=True)
 class SleepCandidate:
     candidate_id: str
     representative_episode_id: str
     member_episode_ids: list[str]
     evidence: dict[str, Any]
-    score_components: dict[str, float]
+    score_components: dict[str, ScoreComponent]
     residual_episode_ids: list[str] = field(default_factory=list)
+    redundancy_tier: str = "local"
+    portability_evidence: dict[str, Any] = field(default_factory=dict)
+    functional_utility: dict[str, float] = field(default_factory=dict)
     decision: str = "review"
     retained_exception_rationale: dict[str, str] = field(default_factory=dict)
 
@@ -340,6 +331,9 @@ class SleepCandidate:
             "evidence": _normalize_value(self.evidence),
             "score_components": _normalize_value(self.score_components),
             "residual_episode_ids": self.residual_episode_ids,
+            "redundancy_tier": self.redundancy_tier,
+            "portability_evidence": _normalize_value(self.portability_evidence),
+            "functional_utility": _normalize_value(self.functional_utility),
             "decision": self.decision,
             "retained_exception_rationale": self.retained_exception_rationale,
         }
@@ -369,11 +363,9 @@ class SleepArtifact:
         }
 
 
-
 def episode_bank_fingerprint(episodes: list[TraceEpisode]) -> str:
     manifest = "|".join(sorted(ep.episode_id for ep in episodes))
     return sha1(manifest.encode("utf-8")).hexdigest()[:12]
-
 
 
 def default_trace_bank_path(root: str | Path, episodes: list[TraceEpisode]) -> Path:

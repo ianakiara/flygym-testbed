@@ -13,15 +13,25 @@ import pytest
 
 from flygym_research.cognition.adapters import ActionAdapter, ObservationAdapter
 from flygym_research.cognition.body_reflex import BodylessBodyLayer
-from flygym_research.cognition.config import BodyLayerConfig, EnvConfig
+from flygym_research.cognition.config import EnvConfig
 from flygym_research.cognition.controllers import (
     MemoryController,
     PlannerController,
     RandomController,
     ReducedDescendingController,
+    SelectiveMemoryController,
 )
-from flygym_research.cognition.envs import FlyAvatarEnv, FlyBodyWorldEnv
+from flygym_research.cognition.envs import FlyAvatarEnv
 from flygym_research.cognition.experiments import run_episode
+from flygym_research.cognition.experiments.exp_observer_interoperability import (
+    _compute_raw_agreement,
+    _compute_translated_agreement,
+    _perturb_transitions_bias,
+    _perturb_transitions_noise,
+    _perturb_transitions_partial,
+    _perturb_transitions_scaling,
+)
+from flygym_research.cognition.experiments.exp_scale_law import _summarize_stabilities
 from flygym_research.cognition.interfaces import (
     AscendingSummary,
     BrainObservation,
@@ -45,8 +55,15 @@ from flygym_research.cognition.metrics import (
     state_decay_curve,
     target_representation_stability,
 )
+from flygym_research.cognition.metrics.interoperability_metrics import (
+    extract_state_matrix,
+    translated_latent_alignment,
+)
 from flygym_research.cognition.tasks import (
+    ConditionalSequenceTask,
+    DelayedInterferenceTask,
     DelayedRewardTask,
+    DistractorCueRecallTask,
     HistoryDependenceTask,
     NavigationTask,
     SelfWorldDisambiguationTask,
@@ -59,7 +76,6 @@ from flygym_research.cognition.validation import (
     overclaiming_filter,
     validate_claim_text,
 )
-from flygym_research.cognition.worlds import SimplifiedEmbodiedWorld
 
 
 # ─── Helpers ───────────────────────────────────────────────────────────
@@ -322,6 +338,37 @@ class TestHistoryDependenceTask:
         assert "visited" in ws.observables
 
 
+class TestSelectiveMemoryTasks:
+    def test_distractor_cue_recall_reset_and_step(self):
+        task = DistractorCueRecallTask()
+        raw = _make_raw_feedback()
+        summary = _make_summary()
+        ws = task.reset(seed=0, raw_feedback=raw, summary=summary)
+        assert ws.mode == "distractor_cue_recall_task"
+        assert "cue_vector" in ws.observables
+        ws2 = task.step(DescendingCommand(), raw, summary)
+        assert "distractor_active" in ws2.info
+
+    def test_conditional_sequence_reset_and_step(self):
+        task = ConditionalSequenceTask()
+        raw = _make_raw_feedback()
+        summary = _make_summary()
+        ws = task.reset(seed=0, raw_feedback=raw, summary=summary)
+        assert ws.mode == "conditional_sequence_task"
+        assert "context_key" in ws.observables
+        ws2 = task.step(DescendingCommand(), raw, summary)
+        assert "required_order" in ws2.info
+
+    def test_delayed_interference_reset_and_step(self):
+        task = DelayedInterferenceTask()
+        raw = _make_raw_feedback()
+        summary = _make_summary()
+        ws = task.reset(seed=0, raw_feedback=raw, summary=summary)
+        assert ws.mode == "delayed_interference_task"
+        ws2 = task.step(DescendingCommand(), raw, summary)
+        assert "reward_delay" in ws2.info
+
+
 # ─── MemoryController ─────────────────────────────────────────────────
 
 
@@ -354,7 +401,7 @@ class TestMemoryController:
             t = env.step(action)
             obs = t.observation
         state = ctrl.get_internal_state()
-        assert state["memory_length"] == 4.0  # Capped at memory_size.
+        assert state["memory_length"] == 4.0
 
     def test_hidden_state_nonzero(self):
         env = FlyAvatarEnv(body=BodylessBodyLayer())
@@ -364,6 +411,26 @@ class TestMemoryController:
         ctrl.act(obs)
         assert ctrl._hidden is not None
         assert not np.allclose(ctrl._hidden, 0.0)
+
+
+class TestSelectiveMemoryController:
+    def test_reset_and_act(self):
+        env = FlyAvatarEnv(body=BodylessBodyLayer())
+        ctrl = SelectiveMemoryController()
+        ctrl.reset(seed=0)
+        obs = env.reset(seed=0)
+        action = ctrl.act(obs)
+        assert isinstance(action, DescendingCommand)
+
+    def test_internal_state_updates(self):
+        env = FlyAvatarEnv(body=BodylessBodyLayer())
+        ctrl = SelectiveMemoryController()
+        ctrl.reset(seed=0)
+        obs = env.reset(seed=0)
+        ctrl.act(obs)
+        state = ctrl.get_internal_state()
+        assert state["step_count"] == 1.0
+        assert state["active_slots"] >= 1.0
 
 
 # ─── PlannerController ────────────────────────────────────────────────
@@ -434,6 +501,77 @@ class TestInteroperabilityMetrics:
     def test_empty_transitions(self):
         result = controller_action_distribution([])
         assert result["action_move_mean"] == 0.0
+
+    def test_translated_alignment_residual_tracks_selected_direction(self, monkeypatch):
+        import flygym_research.cognition.metrics.interoperability_metrics as interop_metrics
+
+        sentinel_a = object()
+        sentinel_b = object()
+        transitions_a = [sentinel_a] * 8
+        transitions_b = [sentinel_b] * 8
+        matrix_a = np.array(
+            [[0.0, 0.0], [1.0, 1.0], [2.0, 4.0], [3.0, 9.0], [4.0, 16.0], [5.0, 25.0], [6.0, 36.0], [7.0, 49.0]],
+            dtype=np.float64,
+        )
+        matrix_b = np.array(
+            [[0.0, 1.0], [1.0, 1.0], [2.0, 1.0], [3.0, 1.0], [4.0, 1.0], [5.0, 1.0], [6.0, 1.0], [7.0, 1.0]],
+            dtype=np.float64,
+        )
+
+        def fake_extract_state_matrix(transitions):
+            return matrix_a if transitions and transitions[0] is sentinel_a else matrix_b
+
+        monkeypatch.setattr(interop_metrics, "extract_state_matrix", fake_extract_state_matrix)
+        result = translated_latent_alignment(transitions_a, transitions_b)
+        assert result["translation_r2_ab"] == pytest.approx(1.0)
+        assert result["translation_r2_ba"] < result["translation_r2_ab"]
+        assert result["translation_residual_norm"] == pytest.approx(0.0)
+
+
+class TestObserverInteropExperiment:
+    def test_noise_perturbation_changes_measured_state(self):
+        transitions = _make_transitions(10)
+        perturbed = _perturb_transitions_noise(
+            transitions,
+            scale=0.4,
+            rng=np.random.default_rng(0),
+        )
+        assert not np.allclose(
+            extract_state_matrix(transitions),
+            extract_state_matrix(perturbed),
+        )
+        raw = _compute_raw_agreement(transitions, perturbed)
+        assert raw["raw_mse"] > 0.0
+
+    def test_scaling_perturbation_changes_measured_state(self):
+        transitions = _make_transitions(10)
+        perturbed = _perturb_transitions_scaling(transitions, factor=1.8)
+        raw = _compute_raw_agreement(transitions, perturbed)
+        assert raw["raw_mse"] > 0.0
+
+    def test_partial_observation_changes_measured_state(self):
+        transitions = _make_transitions(10)
+        perturbed = _perturb_transitions_partial(
+            transitions,
+            drop_fraction=0.5,
+            rng=np.random.default_rng(0),
+        )
+        raw = _compute_raw_agreement(transitions, perturbed)
+        assert raw["raw_mse"] > 0.0
+
+    def test_translation_improves_over_raw_for_bias_perturbation(self):
+        transitions = _make_transitions(10)
+        perturbed = _perturb_transitions_bias(transitions, bias=1.5)
+        raw = _compute_raw_agreement(transitions, perturbed)
+        translated = _compute_translated_agreement(transitions, perturbed)
+        assert raw["raw_mse"] > translated["translated_mse"]
+
+
+class TestScaleLawHelpers:
+    def test_stability_summary_keeps_infinite_coefficients_unstable(self):
+        summary = _summarize_stabilities([float("inf"), 0.1, 0.2])
+        assert summary["mean_stability_cv"] == pytest.approx(0.15)
+        assert not summary["is_stable"]
 
 
 # ─── Objectness metrics ───────────────────────────────────────────────
