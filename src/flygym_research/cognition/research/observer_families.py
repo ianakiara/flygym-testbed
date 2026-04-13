@@ -306,9 +306,12 @@ def perturb_sign_flip(
 
         feats = dict(t.observation.summary.features)
         feat_keys = sorted(feats.keys())
-        n_feat_flip = max(1, int(len(feat_keys) * flip_fraction))
-        for k in rng.choice(feat_keys, size=min(n_feat_flip, len(feat_keys)), replace=False):
-            feats[k] = -float(feats[k])
+        if feat_flip_keys is None:
+            n_feat_flip = max(1, int(len(feat_keys) * flip_fraction))
+            feat_flip_keys = set(rng.choice(feat_keys, size=min(n_feat_flip, len(feat_keys)), replace=False))
+        for k in feat_keys:
+            if k in feat_flip_keys:
+                feats[k] = -float(feats[k])
 
         obs_dict = _copy_world_observables(
             dict(t.observation.world.observables), pos,
