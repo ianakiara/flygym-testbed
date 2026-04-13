@@ -270,8 +270,9 @@ def perturb_permutation(
         feats = dict(t.observation.summary.features)
         feat_keys = sorted(feats.keys())
         feat_vals = [feats[k] for k in feat_keys]
-        rng.shuffle(feat_vals)
-        feats = dict(zip(feat_keys, feat_vals))
+        if feat_perm is None:
+            feat_perm = rng.permutation(len(feat_vals))
+        feats = dict(zip(feat_keys, [feat_vals[i] for i in feat_perm]))
 
         obs_dict = _copy_world_observables(
             dict(t.observation.world.observables), pos,
