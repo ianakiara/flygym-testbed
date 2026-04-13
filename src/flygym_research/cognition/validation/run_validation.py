@@ -1207,6 +1207,10 @@ def stage_8_seam_stress(output_dir: Path) -> StageResult:
     )
 
 
+def _candidate_is_stressed(candidate) -> bool:
+    return bool(candidate.evidence.get("ablation_channels")) or candidate.evidence.get("perturbation_tag") == "noisy"
+
+
 def stage_9_shared_objectness(output_dir: Path) -> StageResult:
     """Stage 9 — Shared-structure validation."""
     notes = []
@@ -1229,7 +1233,7 @@ def stage_9_shared_objectness(output_dir: Path) -> StageResult:
     for candidate in artifact.candidates:
         score = candidate.score_components
         world_modes = ",".join(candidate.portability_evidence.get("world_modes", []))
-        is_stressed = bool(candidate.evidence.get("ablation_channels")) or candidate.evidence.get("perturbation_tag") == "noisy"
+        is_stressed = _candidate_is_stressed(candidate)
         regime = score.get("shared_structure_regime", "degenerate_convergence")
         if regime == "coherent_shared_structure":
             coherent += 1

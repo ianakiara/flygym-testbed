@@ -110,10 +110,16 @@ class SelectiveMemoryController(BrainInterface):
         context_key = float(observation.world.observables.get("context_key", 0.0))
         cue_strength = float(np.linalg.norm(cue_vector)) + abs(context_key)
         write_gate = max(cue_strength, 0.2)
-        slot_index = int(np.argmin(self._strengths if attention.size == 0 or attention.max() < 0.35 else -attention))
+        slot_index = self._select_slot(attention)
         self._slots[slot_index] = self.gate_decay * self._slots[slot_index] + (1.0 - self.gate_decay) * query
         self._strengths *= self.gate_decay
         self._strengths[slot_index] = float(np.clip(self._strengths[slot_index] + write_gate, 0.0, 1.0))
+
+
+    def _select_slot(self, attention: np.ndarray) -> int:
+        if attention.size == 0 or attention.max() < 0.35:
+            return int(np.argmin(self._strengths))
+        return int(np.argmax(attention))
 
     def get_internal_state(self) -> dict[str, float]:
         return {

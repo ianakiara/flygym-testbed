@@ -27,6 +27,12 @@ def _episodes_by_id(episodes: list[TraceEpisode]) -> dict[str, TraceEpisode]:
     return {episode.episode_id: episode for episode in episodes}
 
 
+def _mean_counterfactual_divergence(divergence: dict[str, float | list]) -> float:
+    return float(
+        divergence.get("mean_translation_divergence", divergence.get("mean_reward_divergence", 0.0))
+    )
+
+
 def backbone_shared_score(
     candidate: SleepCandidate,
     episodes: list[TraceEpisode],
@@ -75,7 +81,7 @@ def backbone_shared_score(
                 {name: by_world[world_a][name] for name in common},
                 {name: by_world[world_b][name] for name in common},
             )
-            divergences.append(divergence.get("mean_translation_divergence", divergence.get("mean_reward_divergence", 0.0)))
+            divergences.append(_mean_counterfactual_divergence(divergence))
     scale_drift = float(np.mean(divergences)) if divergences else 0.0
     compression = compression_gain(len(members), 1)
     portability_fraction = float(
@@ -149,8 +155,17 @@ def safe_compression_score(
     gamma: float = 0.6,
     delta: float = 0.5,
 ) -> dict[str, float | str]:
-    del alpha, beta, gamma, delta
-    return backbone_shared_score(candidate, episodes)
+    result = backbone_shared_score(candidate, episodes)
+    weighted_score = float(
+        alpha * result["redundancy_score"]
+        + 0.25 * alpha * result["functional_transfer_gain"]
+        - beta * result["seam_risk"]
+        - gamma * result["interop_loss"]
+        - delta * result["scale_drift"]
+        - 0.7 * result["degeneracy_penalty"]
+    )
+    result["safe_compression_score"] = weighted_score
+    return result
 
 
 def residual_score(candidate: SleepCandidate, episodes: list[TraceEpisode]) -> dict[str, float]:

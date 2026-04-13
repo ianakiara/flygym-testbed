@@ -56,6 +56,7 @@ def _success_signature(episode: TraceEpisode) -> bool:
 
 
 def _local_cluster_key(episode: TraceEpisode) -> tuple[str, str, tuple[str, ...], bool]:
+    """Key for same-world clustering before cross-world consolidation."""
     return (
         episode.world_mode,
         episode.perturbation_tag,

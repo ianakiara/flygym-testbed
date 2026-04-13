@@ -7,6 +7,10 @@ from typing import Any
 from .trace_schema import SleepArtifact, SleepCandidate, TraceEpisode
 
 
+def _coerce_score_component(value: Any) -> Any:
+    return float(value) if isinstance(value, (int, float)) else value
+
+
 class TraceStore:
     """Simple JSON-backed storage for sleep traces and artifacts."""
 
@@ -53,7 +57,7 @@ class TraceStore:
                 representative_episode_id=c["representative_episode_id"],
                 member_episode_ids=c["member_episode_ids"],
                 evidence=c["evidence"],
-                score_components={str(k): v for k, v in c["score_components"].items()},
+                score_components={str(k): _coerce_score_component(v) for k, v in c["score_components"].items()},
                 residual_episode_ids=c.get("residual_episode_ids", []),
                 redundancy_tier=c.get("redundancy_tier", "local"),
                 portability_evidence=c.get("portability_evidence", {}),
