@@ -14,6 +14,8 @@ from ..metrics import summarize_metrics, temporal_causal_depth
 from ..tasks import ConditionalSequenceTask, DelayedInterferenceTask, DistractorCueRecallTask
 from .benchmark_harness import run_episode
 
+BENCHMARK_SEEDS = (0, 1, 2)
+
 
 def _make_env(task_name: str) -> FlyBodyWorldEnv:
     cfg = EnvConfig(episode_steps=48)
@@ -43,7 +45,7 @@ def run_experiment(
     for task_name in tasks:
         for controller_name, controller in controllers.items():
             metrics_per_seed = []
-            for seed in [0, 1, 2]:
+            for seed in BENCHMARK_SEEDS:
                 env = _make_env(task_name)
                 transitions = run_episode(env, controller, seed=seed, max_steps=48)
                 metrics = summarize_metrics(transitions)

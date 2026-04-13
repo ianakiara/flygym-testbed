@@ -5,6 +5,10 @@ import numpy as np
 # Shared-structure regimes are intentionally conservative:
 # - coherent requires a clearly positive backbone score with low degeneracy
 # - degraded still requires portable support but tolerates mild score erosion
+# The numeric cutoffs are calibrated to the bounded [-1, 1]-ish scoring surface
+# produced by shared_structure_profile: 0.2 marks a meaningful positive margin,
+# while -0.05 still allows near-neutral but portable candidates to survive as
+# degraded rather than being collapsed into degenerate convergence.
 COHERENT_BACKBONE_THRESHOLD = 0.2
 DEGENERACY_CEILING = 0.2
 DEGRADED_PORTABLE_FLOOR = 0.2

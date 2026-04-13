@@ -27,7 +27,7 @@ def _episodes_by_id(episodes: list[TraceEpisode]) -> dict[str, TraceEpisode]:
     return {episode.episode_id: episode for episode in episodes}
 
 
-def _extract_counterfactual_divergence(divergence: dict[str, object]) -> float:
+def _primary_divergence_metric(divergence: dict[str, object]) -> float:
     if "mean_translation_divergence" in divergence:
         value = divergence["mean_translation_divergence"]
     elif "mean_reward_divergence" in divergence:
@@ -35,6 +35,20 @@ def _extract_counterfactual_divergence(divergence: dict[str, object]) -> float:
     else:
         value = 0.0
     return float(value) if isinstance(value, (int, float)) else 0.0
+
+
+def _resolve_portability_fraction(
+    candidate: SleepCandidate,
+    members: list[TraceEpisode],
+) -> float:
+    raw_fraction = candidate.portability_evidence.get("portability_fraction")
+    if raw_fraction is None:
+        return float(len({episode.world_mode for episode in members}))
+    portability_fraction = float(raw_fraction)
+    total_worlds = len(candidate.portability_evidence.get("total_worlds", []))
+    if portability_fraction > 1.0 and total_worlds > 0:
+        return portability_fraction / total_worlds
+    return portability_fraction
 
 
 def backbone_shared_score(
@@ -85,18 +99,10 @@ def backbone_shared_score(
                 {name: by_world[world_a][name] for name in common},
                 {name: by_world[world_b][name] for name in common},
             )
-            divergences.append(_extract_counterfactual_divergence(divergence))
+            divergences.append(_primary_divergence_metric(divergence))
     scale_drift = float(np.mean(divergences)) if divergences else 0.0
     compression = compression_gain(len(members), 1)
-    portability_fraction = float(
-        candidate.portability_evidence.get(
-            "portability_fraction",
-            len({episode.world_mode for episode in members}),
-        )
-    )
-    portability_fraction = portability_fraction / max(
-        len(candidate.portability_evidence.get("total_worlds", [])), 1
-    ) if portability_fraction > 1.0 else portability_fraction
+    portability_fraction = _resolve_portability_fraction(candidate, members)
     mean_success = _mean_metric(members, "success")
     if functional_transfer_gain is None:
         functional_transfer_gain = candidate.functional_utility.get("functional_transfer_gain")
