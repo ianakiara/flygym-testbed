@@ -128,7 +128,10 @@ def _compute_degradation_slope(
     y = np.array([p[1] for p in points], dtype=np.float64)
     if np.std(x) < 1e-8 or np.std(y) < 1e-8:
         return 0.0
-    return float(np.polyfit(x, y, deg=1)[0])
+    try:
+        return float(np.polyfit(x, y, deg=1)[0])
+    except np.linalg.LinAlgError:
+        return 0.0
 
 
 # ---------------------------------------------------------------------------
