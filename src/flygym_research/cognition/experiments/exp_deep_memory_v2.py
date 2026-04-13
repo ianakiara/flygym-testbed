@@ -144,6 +144,9 @@ class _ScalarMemoryController(BrainInterface):
         stability = float(observation.summary.features.get("stability", 0.0))
 
         cue_signal = float(cue_vector[0]) if cue_vector.size > 0 else 0.0
+        # Keep the scalar baseline intentionally unkeyed: it tracks a single
+        # recent cue trace instead of mixing in task context like the selective
+        # memory controller does.
         self.memory_trace = (
             self.decay * self.memory_trace
             + (1.0 - self.decay) * cue_signal
