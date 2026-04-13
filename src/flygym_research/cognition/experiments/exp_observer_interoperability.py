@@ -23,6 +23,8 @@ from ..interfaces import AscendingSummary, BrainObservation, RawBodyFeedback, St
 from ..metrics.interoperability_metrics import extract_state_matrix
 from .exp_sleep_trace_compressor import collect_trace_bank
 
+HEADING_NOISE_SCALE = 0.25
+
 
 def _clone_transition(
     transition,
@@ -125,7 +127,8 @@ def _perturb_transitions_noise(transitions: list, *, scale: float = 0.3, rng: np
                 observables=_copy_world_observables(
                     t,
                     avatar_xy=avatar_xy,
-                    heading=t.observation.world.observables.get("heading", 0.0) + rng.normal(0.0, scale * 0.25),
+                    heading=t.observation.world.observables.get("heading", 0.0)
+                    + rng.normal(0.0, scale * HEADING_NOISE_SCALE),
                     target_vector=noisy_target,
                 ),
                 info=info,
@@ -401,7 +404,7 @@ def run_experiment(
                 **raw,
                 **translated,
                 "interop_auc": interop_auc,
-                "translation_improvement_mse": raw["raw_mse"] - translated["translated_mse"],
+                "mse_reduction": raw["raw_mse"] - translated["translated_mse"],
                 "translation_improvement_corr": translated["translated_correlation"] - raw["raw_correlation"],
             }
             pert_results.append(row)
@@ -416,7 +419,7 @@ def run_experiment(
                 "mean_translated_mse": float(np.mean([r["translated_mse"] for r in pert_results])),
                 "mean_translated_correlation": float(np.mean([r["translated_correlation"] for r in pert_results])),
                 "mean_interop_auc": float(np.mean([r["interop_auc"] for r in pert_results])),
-                "mean_translation_improvement_mse": float(np.mean([r["translation_improvement_mse"] for r in pert_results])),
+                "mean_mse_reduction": float(np.mean([r["mse_reduction"] for r in pert_results])),
                 "mean_translation_improvement_corr": float(np.mean([r["translation_improvement_corr"] for r in pert_results])),
                 "details": pert_results[:5],
             }
@@ -434,7 +437,7 @@ def run_experiment(
 
     # Check consistency across all perturbation types using the primary MSE signal.
     consistently_better = all(
-        results_by_perturbation[p]["mean_translation_improvement_mse"] > 0
+        results_by_perturbation[p]["mean_mse_reduction"] > 0
         for p in results_by_perturbation
     )
 
