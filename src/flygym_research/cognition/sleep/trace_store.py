@@ -8,7 +8,7 @@ from .trace_schema import SleepArtifact, SleepCandidate, TraceEpisode
 
 
 def _coerce_score_component(value: Any) -> float | str | bool:
-    if isinstance(value, bool):
+    if type(value) is bool:
         return value
     if isinstance(value, (int, float)):
         return float(value)

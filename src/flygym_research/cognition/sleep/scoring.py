@@ -28,10 +28,12 @@ def _episodes_by_id(episodes: list[TraceEpisode]) -> dict[str, TraceEpisode]:
 
 
 def _mean_counterfactual_divergence(divergence: dict[str, object]) -> float:
-    value = divergence.get(
-        "mean_translation_divergence",
-        divergence.get("mean_reward_divergence", 0.0),
-    )
+    if "mean_translation_divergence" in divergence:
+        value = divergence["mean_translation_divergence"]
+    elif "mean_reward_divergence" in divergence:
+        value = divergence["mean_reward_divergence"]
+    else:
+        value = 0.0
     return float(value) if isinstance(value, (int, float)) else 0.0
 
 

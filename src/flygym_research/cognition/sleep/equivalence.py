@@ -141,9 +141,12 @@ def candidate_from_cluster(
         "cluster_size": float(len(cluster)),
         "world_coverage": float(len(world_modes)),
     }
+    portability_fraction = 0.0
+    if redundancy_tier in {"portable", "universal"} or len(world_modes) > 1:
+        portability_fraction = 1.0
     portability = portability_evidence or {
         "world_modes": world_modes,
-        "portability_fraction": 1.0 if redundancy_tier in {"portable", "universal"} else (1.0 if len(world_modes) > 1 else 0.0),
+        "portability_fraction": portability_fraction,
         "supporting_local_candidates": [],
     }
     return SleepCandidate(
