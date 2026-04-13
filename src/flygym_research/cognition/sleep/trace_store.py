@@ -7,8 +7,14 @@ from typing import Any
 from .trace_schema import SleepArtifact, SleepCandidate, TraceEpisode
 
 
-def _coerce_score_component(value: Any) -> Any:
-    return float(value) if isinstance(value, (int, float)) else value
+def _coerce_score_component(value: Any) -> float | str:
+    if isinstance(value, bool):
+        raise TypeError("Score components must not store boolean values.")
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        return value
+    raise TypeError(f"Unsupported score component type: {type(value).__name__}")
 
 
 class TraceStore:

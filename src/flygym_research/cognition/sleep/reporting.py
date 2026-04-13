@@ -13,6 +13,7 @@ def artifact_summary(artifact: SleepArtifact) -> dict[str, float | int]:
         "n_residual": len(artifact.residual_episode_ids),
         "compression_gain": float(validation.get("compression_gain", 0.0)),
         "mean_backbone_shared": float(validation.get("mean_backbone_shared", 0.0)),
+        "mean_safe_compression": float(validation.get("mean_safe_compression", 0.0)),
         "pass": int(bool(validation.get("passed", False))),
     }
 
@@ -43,6 +44,10 @@ def sleep_artifact_to_markdown(artifact: SleepArtifact) -> str:
         lines.append(
             f"- {candidate.candidate_id}: tier={candidate.redundancy_tier}, "
             f"backbone={candidate.score_components.get('backbone_shared_score', 0.0):.3f}, "
+            f"safe={candidate.score_components.get('safe_compression_score', 0.0):.3f}, "
+            f"seam={candidate.score_components.get('seam_risk', 0.0):.3f}, "
+            f"drift={candidate.score_components.get('scale_drift', 0.0):.3f}, "
+            f"portable={candidate.score_components.get('portability_fraction', 0.0):.3f}, "
             f"regime={candidate.score_components.get('shared_structure_regime', 'unknown')}, "
             f"transfer={candidate.score_components.get('functional_transfer_gain', 0.0):.3f}"
         )

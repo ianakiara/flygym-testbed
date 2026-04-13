@@ -138,7 +138,6 @@ def backbone_shared_score(
         "functional_transfer_gain": float(functional_transfer_gain),
         "portability_fraction": portability_fraction,
         "backbone_shared_score": float(profile["backbone_shared"]),
-        "safe_compression_score": float(profile["backbone_shared"]),
         "shared_structure_regime": str(profile["shared_structure_regime"]),
         "transfer_hierarchy_tier": str(hierarchy["transfer_hierarchy_tier"]),
         "mean_return": _mean_metric(members, "return"),

@@ -8,7 +8,7 @@ from ..metrics.sleep_metrics import compression_gain, post_compression_robustnes
 from .equivalence import extract_sleep_candidates
 from .reporting import artifact_summary
 from .residuals import select_residual_exceptions
-from .scoring import backbone_shared_score, residual_score
+from .scoring import backbone_shared_score, residual_score, safe_compression_score
 from .trace_schema import SleepArtifact, TraceEpisode, episode_bank_fingerprint
 
 
@@ -42,8 +42,12 @@ def compress_trace_bank(
     residual_episode_ids: list[str] = []
     for candidate in candidates:
         select_residual_exceptions(candidate, episodes)
-        candidate_score = backbone_shared_score(candidate, episodes)
-        candidate.score_components.update(candidate_score)
+        backbone_score = backbone_shared_score(candidate, episodes)
+        candidate.score_components.update(backbone_score)
+        candidate.score_components["safe_compression_score"] = safe_compression_score(
+            candidate,
+            episodes,
+        )["safe_compression_score"]
         candidate.score_components.update(residual_score(candidate, episodes))
         if len(candidate.member_episode_ids) == 1:
             candidate.decision = "keep_singleton"
@@ -106,6 +110,7 @@ def compress_trace_bank(
             "baseline_success": baseline_metrics["success"],
             "compressed_success": compressed_metrics["success"],
             "mean_backbone_shared": float(np.mean([candidate.score_components.get("backbone_shared_score", 0.0) for candidate in candidates])) if candidates else 0.0,
+            "mean_safe_compression": float(np.mean([candidate.score_components.get("safe_compression_score", 0.0) for candidate in candidates])) if candidates else 0.0,
             "portable_fraction": float(np.mean([candidate.score_components.get("portability_fraction", 0.0) for candidate in candidates])) if candidates else 0.0,
             "pass_rate": 1.0 if passed else 0.0,
             "passed": passed,

@@ -9,7 +9,7 @@ from ..config import BodyLayerConfig, EnvConfig
 from ..envs import FlyAvatarEnv, FlyBodyWorldEnv
 from ..metrics import summarize_metrics
 from ..worlds import NativePhysicalWorld, SimplifiedEmbodiedWorld
-from .scoring import backbone_shared_score
+from .scoring import backbone_shared_score, safe_compression_score
 from .trace_schema import SleepArtifact, TraceEpisode
 
 
@@ -118,10 +118,19 @@ def benchmark_portable_replay(
                 functional_transfer_gain=functional_transfer_gain,
             )
         )
+        candidate.score_components["safe_compression_score"] = safe_compression_score(
+            candidate,
+            episodes,
+            alpha=1.0,
+            beta=0.6,
+            gamma=0.6,
+            delta=0.5,
+        )["safe_compression_score"]
         candidate_row = {
             "candidate_id": candidate.candidate_id,
             "redundancy_tier": candidate.redundancy_tier,
             "backbone_shared_score": float(candidate.score_components.get("backbone_shared_score", 0.0)),
+            "safe_compression_score": float(candidate.score_components.get("safe_compression_score", 0.0)),
             "portability_fraction": float(candidate.score_components.get("portability_fraction", 0.0)),
             "functional_transfer_gain": functional_transfer_gain,
             "mean_return_lift": mean_return_lift,
@@ -135,6 +144,7 @@ def benchmark_portable_replay(
         by_tier[tier] = {
             "n_candidates": len(rows),
             "mean_backbone_shared": float(np.mean([row["backbone_shared_score"] for row in rows])),
+            "mean_safe_compression": float(np.mean([row["safe_compression_score"] for row in rows])),
             "mean_functional_transfer_gain": float(np.mean([row["functional_transfer_gain"] for row in rows])),
             "mean_return_lift": float(np.mean([row["mean_return_lift"] for row in rows])),
             "mean_success_lift": float(np.mean([row["mean_success_lift"] for row in rows])),

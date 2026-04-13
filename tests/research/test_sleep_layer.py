@@ -38,6 +38,7 @@ from flygym_research.cognition.sleep import (
     cleanup_memory_bank,
     compress_trace_bank,
     extract_sleep_candidates,
+    safe_compression_score,
 )
 
 
@@ -79,6 +80,7 @@ class TestSleepTraceSchemaAndStore:
         assert loaded.compressed_episode_ids == artifact.compressed_episode_ids
         assert loaded.residual_episode_ids == artifact.residual_episode_ids
         assert len(loaded.candidates) == len(artifact.candidates)
+        assert loaded.candidates[0].score_components["shared_structure_regime"] == artifact.candidates[0].score_components["shared_structure_regime"]
 
 
 class TestSleepCompression:
@@ -111,6 +113,7 @@ class TestSleepCompression:
         tiers = {candidate.redundancy_tier for candidate in artifact.candidates}
         assert tiers <= {"local", "portable", "universal"}
         assert all("backbone_shared_score" in candidate.score_components for candidate in artifact.candidates)
+        assert all("safe_compression_score" in candidate.score_components for candidate in artifact.candidates)
 
 
 class TestSleepProcesses:
@@ -172,7 +175,10 @@ class TestSleepMetrics:
         assert repair["repairability_score"] == pytest.approx(2 / 3)
         artifact = compress_trace_bank([left, right], config=CompressionConfig(min_equivalence_strength=0.1))
         score = backbone_shared_score(artifact.candidates[0], [left, right])
+        baseline = safe_compression_score(artifact.candidates[0], [left, right])
         assert "backbone_shared_score" in score
+        assert "safe_compression_score" in baseline
+        assert baseline["safe_compression_score"] != score["backbone_shared_score"]
 
     def test_repairability_score_edge_cases(self):
         # Zero failures → perfect score
