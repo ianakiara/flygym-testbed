@@ -226,6 +226,22 @@ def seam_fragility(transitions: list[StepTransition]) -> dict[str, float]:
 
     boundary_scores = []
     for prev, curr in zip(transitions[:-1], transitions[1:]):
+        seam_marked = (
+            bool(prev.info.get("seam_corruption_applied"))
+            or bool(curr.info.get("seam_corruption_applied"))
+            or bool(prev.info.get("delayed_target_mismatch"))
+            or bool(curr.info.get("delayed_target_mismatch"))
+            or bool(prev.info.get("seam_boundary_index"))
+            or bool(curr.info.get("seam_boundary_index"))
+            or bool(prev.observation.world.info.get("hidden_mode_switch"))
+            or bool(curr.observation.world.info.get("hidden_mode_switch"))
+            or bool(prev.observation.world.info.get("delayed_target_mismatch"))
+            or bool(curr.observation.world.info.get("delayed_target_mismatch"))
+            or prev.observation.world.mode != curr.observation.world.mode
+        )
+        if not seam_marked:
+            continue
+
         prev_obs = prev.observation
         curr_obs = curr.observation
 

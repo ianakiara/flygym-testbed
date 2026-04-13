@@ -270,6 +270,7 @@ def _composition_utility(
     rewards: list[float],
     seam_idx: int,
     seam_defect: float,
+    seam_boundary: float = 0.0,
 ) -> float:
     """Seam-aware utility that keeps long-horizon ordering from being diluted."""
     if not rewards:
@@ -285,6 +286,7 @@ def _composition_utility(
         + 0.65 * post_mean
         - 0.5 * degradation
         - 1.5 * seam_defect
+        - 2.0 * seam_boundary
     )
 
 
@@ -455,13 +457,19 @@ def run_experiment(
 
                 # Path divergence after seam
                 seam_idx = len(ep_a.transitions)
+                seam_boundary = _seam_boundary_score(composed, seam_idx)
                 post_seam_rewards = rewards[seam_idx:] if seam_idx < n_steps else []
                 post_seam_return = float(np.sum(post_seam_rewards)) if post_seam_rewards else 0.0
 
                 # Failure flag: significant degradation after seam
                 is_failure = 1.0 if degradation > 5.0 or post_seam_return < -10.0 else 0.0
 
-                composition_return = _composition_utility(rewards, seam_idx, seam_defect)
+                composition_return = _composition_utility(
+                    rewards,
+                    seam_idx,
+                    seam_defect,
+                    seam_boundary,
+                )
                 trial = {
                     "family": family_name,
                     "strategy": strategy_name,
@@ -470,6 +478,7 @@ def run_experiment(
                     "return": composition_return,
                     "raw_return": raw_return,
                     "seam_defect": seam_defect,
+                    "seam_boundary": seam_boundary,
                     "return_degradation": degradation,
                     "post_seam_return": post_seam_return,
                     "is_failure": is_failure,
@@ -526,6 +535,7 @@ def run_experiment(
             "n_trials": len(family_trials),
             "mean_return": float(np.mean([t["return"] for t in family_trials])),
             "mean_seam_defect": float(np.mean([t["seam_defect"] for t in family_trials])),
+            "mean_seam_boundary": float(np.mean([t["seam_boundary"] for t in family_trials])),
             "failure_rate": float(np.mean([t["is_failure"] for t in family_trials])),
             "mean_degradation": float(np.mean([t["return_degradation"] for t in family_trials])),
         }
@@ -540,6 +550,7 @@ def run_experiment(
             "n_trials": len(strat_trials),
             "mean_return": float(np.mean([t["return"] for t in strat_trials])),
             "mean_seam_defect": float(np.mean([t["seam_defect"] for t in strat_trials])),
+            "mean_seam_boundary": float(np.mean([t["seam_boundary"] for t in strat_trials])),
             "failure_rate": float(np.mean([t["is_failure"] for t in strat_trials])),
         }
 
