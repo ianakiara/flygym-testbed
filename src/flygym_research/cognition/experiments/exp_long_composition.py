@@ -21,6 +21,7 @@ from pathlib import Path
 
 import numpy as np
 
+from ..interfaces import StepTransition
 from ..metrics import seam_fragility, summarize_metrics
 from ..research.long_horizon_runner import collect_long_horizon
 from ..research.stress_harness import (
@@ -100,8 +101,8 @@ def _bulk_compose(
 
 
 def _blend_transitions(
-    ta: "StepTransition", tb: "StepTransition", alpha: float
-) -> "StepTransition":
+    ta: StepTransition, tb: StepTransition, alpha: float
+) -> StepTransition:
     """Return a new StepTransition that linearly interpolates ta → tb.
 
     Blends all fields that ``seam_fragility`` measures: target_vector,
@@ -109,7 +110,6 @@ def _blend_transitions(
     at the composition boundary so that boundary strategies produce
     measurably lower seam_fragility than bulk (naive) composition.
     """
-    from ..interfaces import StepTransition
     from ..interfaces.types import (
         BrainObservation, RawBodyFeedback, WorldState,
     )
