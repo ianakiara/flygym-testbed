@@ -159,10 +159,24 @@ def _measure_candidate_properties(
 # ---------------------------------------------------------------------------
 
 def _stability_coefficient(values: list[float]) -> float:
-    """Coefficient of variation: lower = more stable."""
-    if len(values) < 2 or np.mean(values) == 0:
-        return 0.0 if len(values) < 2 else float("inf")
-    return float(np.std(values) / (abs(np.mean(values)) + 1e-8))
+    """Coefficient of variation: lower = more stable.
+
+    Special cases:
+    - < 2 values: insufficient data → return 0.0
+    - All values identical (including all-zero): perfectly stable → return 0.0
+    - Mean ≈ 0 but values vary: undefined CV → return inf
+    """
+    if len(values) < 2:
+        return 0.0
+    std = float(np.std(values))
+    if std < 1e-10:
+        # All values are (effectively) identical — perfectly stable
+        return 0.0
+    mean_abs = abs(float(np.mean(values)))
+    if mean_abs < 1e-10:
+        # Mean ≈ 0 but values vary → CV is undefined/infinite
+        return float("inf")
+    return float(std / (mean_abs + 1e-8))
 
 
 # ---------------------------------------------------------------------------

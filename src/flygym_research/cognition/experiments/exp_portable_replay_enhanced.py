@@ -78,14 +78,23 @@ def _detect_false_portable(
     candidate: SleepCandidate,
     episodes: list[TraceEpisode],
     replay_results: dict[str, dict],
+    source_world: str,
+    *,
+    effective_tier: str | None = None,
 ) -> dict | None:
-    """Detect candidates labeled portable but that fail on transfer."""
-    if candidate.redundancy_tier != "portable":
+    """Detect candidates labeled portable but that fail on transfer.
+
+    Only considers transfer worlds (excludes same-world replay).
+    """
+    tier = effective_tier if effective_tier is not None else candidate.redundancy_tier
+    if tier != "portable":
         return None
 
     transfer_failures = 0
     total_transfers = 0
     for world_mode, metrics in replay_results.items():
+        if world_mode == source_world:
+            continue  # skip same-world — only check transfer
         total_transfers += 1
         if metrics.get("return_lift", 0.0) < -5.0:
             transfer_failures += 1
@@ -103,14 +112,23 @@ def _detect_false_portable(
 def _detect_accidental_local_transfer(
     candidate: SleepCandidate,
     replay_results: dict[str, dict],
+    source_world: str,
+    *,
+    effective_tier: str | None = None,
 ) -> dict | None:
-    """Detect local candidates that accidentally transfer well."""
-    if candidate.redundancy_tier != "local":
+    """Detect local candidates that accidentally transfer well.
+
+    Only considers transfer worlds (excludes same-world replay).
+    """
+    tier = effective_tier if effective_tier is not None else candidate.redundancy_tier
+    if tier != "local":
         return None
 
     transfer_successes = 0
     total_transfers = 0
     for world_mode, metrics in replay_results.items():
+        if world_mode == source_world:
+            continue  # skip same-world — only check transfer
         total_transfers += 1
         if metrics.get("return_lift", 0.0) > 2.0:
             transfer_successes += 1
@@ -153,15 +171,18 @@ def run_experiment(
             for key in ("return", "success", "stability_mean")
         }
 
-    # Apply consistency filter to universals
+    # Apply consistency filter to universals — track demotions without
+    # mutating original candidate objects
     filtered_candidates = []
     consistency_failures = []
+    demoted_tiers: dict[str, str] = {}  # candidate_id -> effective tier
     for cand in artifact.candidates:
+        effective_tier = cand.redundancy_tier
         if cand.redundancy_tier == "universal":
             if not _consistency_filter(cand, episodes):
                 consistency_failures.append(cand.candidate_id)
-                # Demote to portable
-                cand.redundancy_tier = "portable"
+                effective_tier = "portable"  # demote without mutation
+        demoted_tiers[cand.candidate_id] = effective_tier
         filtered_candidates.append(cand)
 
     # Replay protocol: same-world, unseen-world, adversarial-world
@@ -221,9 +242,10 @@ def run_experiment(
         except Exception:
             portability_score = 0.0
 
+        effective_tier = demoted_tiers.get(cand.candidate_id, cand.redundancy_tier)
         cand_row = {
             "candidate_id": cand.candidate_id,
-            "tier": cand.redundancy_tier,
+            "tier": effective_tier,
             "source_world": source_world,
             "mean_return_lift": mean_return_lift,
             "mean_success_lift": mean_success_lift,
@@ -232,15 +254,22 @@ def run_experiment(
             "portability_score": portability_score,
         }
         per_candidate.append({**cand_row, "replay_details": replay_results})
-        tier_rows[cand.redundancy_tier].append(cand_row)
+        tier_rows[effective_tier].append(cand_row)
 
-        # False portable detection
-        fp = _detect_false_portable(cand, episodes, replay_results)
+        # False portable detection — pass effective_tier and source_world
+        # so same-world results are excluded from transfer failure rate.
+        fp = _detect_false_portable(
+            cand, episodes, replay_results, source_world,
+            effective_tier=effective_tier,
+        )
         if fp:
             false_portables.append(fp)
 
         # Accidental local transfer
-        at = _detect_accidental_local_transfer(cand, replay_results)
+        at = _detect_accidental_local_transfer(
+            cand, replay_results, source_world,
+            effective_tier=effective_tier,
+        )
         if at:
             accidental_transfers.append(at)
 

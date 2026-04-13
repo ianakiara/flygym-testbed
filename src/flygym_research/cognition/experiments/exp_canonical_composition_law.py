@@ -342,13 +342,44 @@ def run_experiment(
     else:
         seam_failure_correlation = 0.0
 
-    # Pass criteria evaluation
-    bulk_fr = summary_by_strategy["bulk_only"]["failure_rate"]
-    boundary_fr = summary_by_strategy["boundary_aware"]["failure_rate"]
-    corner_fr = summary_by_strategy["corner_restored"]["failure_rate"]
+    # Pass criteria evaluation — per-trial head-to-head comparison
+    # Spec: "boundary > bulk in ≥ 85%" means boundary beats bulk in at
+    # least 85% of paired evaluations (by L_hyb or return degradation).
+    bulk_rows = results_by_strategy["bulk_only"]
+    boundary_rows = results_by_strategy["boundary_aware"]
+    corner_rows = results_by_strategy["corner_restored"]
 
-    boundary_beats_bulk = (1.0 - boundary_fr) >= 0.85 * (1.0 - bulk_fr) if bulk_fr < 1.0 else boundary_fr < bulk_fr
-    corner_beats_boundary = (1.0 - corner_fr) >= 0.80 * (1.0 - boundary_fr) if boundary_fr < 1.0 else corner_fr < boundary_fr
+    # Build episode keys to pair evaluations across strategies
+    def _episode_key(r: dict) -> tuple:
+        return (r["controller"], r["world_mode"], r["seed"], r["tag"])
+
+    bulk_by_key = {_episode_key(r): r for r in bulk_rows}
+    boundary_by_key = {_episode_key(r): r for r in boundary_rows}
+    corner_by_key = {_episode_key(r): r for r in corner_rows}
+
+    # Count head-to-head wins (lower return_degradation = better,
+    # or higher L_hyb = better)
+    boundary_vs_bulk_wins = 0
+    boundary_vs_bulk_total = 0
+    for key in bulk_by_key:
+        if key in boundary_by_key:
+            boundary_vs_bulk_total += 1
+            if boundary_by_key[key]["L_hyb"] >= bulk_by_key[key]["L_hyb"]:
+                boundary_vs_bulk_wins += 1
+
+    corner_vs_boundary_wins = 0
+    corner_vs_boundary_total = 0
+    for key in boundary_by_key:
+        if key in corner_by_key:
+            corner_vs_boundary_total += 1
+            if corner_by_key[key]["L_hyb"] >= boundary_by_key[key]["L_hyb"]:
+                corner_vs_boundary_wins += 1
+
+    boundary_win_rate = boundary_vs_bulk_wins / max(boundary_vs_bulk_total, 1)
+    corner_win_rate = corner_vs_boundary_wins / max(corner_vs_boundary_total, 1)
+
+    boundary_beats_bulk = boundary_win_rate >= 0.85
+    corner_beats_boundary = corner_win_rate >= 0.80
     seam_predicts_failure = abs(seam_failure_correlation) > 0.7
 
     # Phase diagram: tag × strategy
@@ -374,6 +405,10 @@ def run_experiment(
             "boundary_beats_bulk_85pct": boundary_beats_bulk,
             "corner_beats_boundary_80pct": corner_beats_boundary,
             "seam_predicts_failure_rho_gt_0.7": seam_predicts_failure,
+            "boundary_vs_bulk_win_rate": boundary_win_rate,
+            "corner_vs_boundary_win_rate": corner_win_rate,
+            "boundary_vs_bulk_n_pairs": boundary_vs_bulk_total,
+            "corner_vs_boundary_n_pairs": corner_vs_boundary_total,
         },
         "phase_diagram": phase_diagram,
         "seam_heatmap": seam_heatmap,

@@ -19,6 +19,7 @@ from ..metrics import (
     raw_latent_alignment,
     translated_latent_alignment,
 )
+from ..metrics.interoperability_metrics import extract_state_matrix
 from .exp_sleep_trace_compressor import collect_trace_bank
 
 
@@ -175,25 +176,46 @@ PERTURBATION_TYPES = {
 # ---------------------------------------------------------------------------
 
 def _compute_raw_agreement(original: list, perturbed: list) -> dict[str, float]:
-    """Compute raw (untranslated) agreement between original and perturbed."""
+    """Compute raw (untranslated) agreement between original and perturbed.
+
+    raw_latent_alignment() returns:
+      - raw_alignment: mean per-dimension Pearson correlation
+      - raw_dims_active: number of non-constant dimensions
+    We also compute element-wise MSE on the state matrices directly.
+    """
     try:
         raw = raw_latent_alignment(original, perturbed)
+        # Compute actual MSE on state matrices
+        n = min(len(original), len(perturbed))
+        Z_orig = extract_state_matrix(original[:n])
+        Z_pert = extract_state_matrix(perturbed[:n])
+        raw_mse = float(np.mean((Z_orig - Z_pert) ** 2)) if n > 0 else 1.0
         return {
-            "raw_mse": float(raw.get("raw_mse", 1.0)),
-            "raw_correlation": float(raw.get("raw_correlation", 0.0)),
+            "raw_mse": raw_mse,
+            "raw_correlation": float(raw.get("raw_alignment", 0.0)),
         }
     except Exception:
         return {"raw_mse": 1.0, "raw_correlation": 0.0}
 
 
 def _compute_translated_agreement(original: list, perturbed: list) -> dict[str, float]:
-    """Compute translated agreement (after learned alignment)."""
+    """Compute translated agreement (after learned alignment).
+
+    translated_latent_alignment() returns:
+      - translated_alignment: max(R²_ab, R²_ba)
+      - translation_r2_ab / translation_r2_ba: directional R² values
+      - translation_residual_norm: residual per sample after linear map
+    """
     try:
         translated = translated_latent_alignment(original, perturbed)
+        # Compute translated MSE from the residual norm
+        # residual_norm is already per-sample, square it for MSE proxy
+        res_norm = float(translated.get("translation_residual_norm", 1.0))
+        translated_mse = res_norm ** 2
         return {
-            "translated_mse": float(translated.get("translated_mse", 1.0)),
-            "translated_correlation": float(translated.get("translated_correlation", 0.0)),
-            "translation_r2": float(translated.get("translation_r2", 0.0)),
+            "translated_mse": translated_mse,
+            "translated_correlation": float(translated.get("translated_alignment", 0.0)),
+            "translation_r2": float(translated.get("translated_alignment", 0.0)),
         }
     except Exception:
         return {"translated_mse": 1.0, "translated_correlation": 0.0, "translation_r2": 0.0}

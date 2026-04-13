@@ -583,9 +583,12 @@ def _compute_causal_depth(transitions: list, controller: BrainInterface) -> floa
     """Compute causal depth for a controller on given transitions."""
     try:
         result = temporal_causal_depth(transitions)
-        return float(result.get("temporal_causal_depth", 1.0))
+        # temporal_causal_depth() returns "causal_depth" (lag at which
+        # action-change autocorrelation drops below 0.1) and
+        # "causal_depth_score" (normalised 0-1).  Use the raw depth.
+        return float(result.get("causal_depth", 0.0))
     except Exception:
-        return 1.0
+        return 0.0
 
 
 def _compute_memory_utilization(controller: BrainInterface) -> float:

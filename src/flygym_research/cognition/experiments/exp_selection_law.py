@@ -49,10 +49,12 @@ def _build_candidate_pool(
         for m in members[:3]:
             try:
                 cd = temporal_causal_depth(m.transitions)
-                causal_depths.append(float(cd.get("temporal_causal_depth", 1.0)))
+                # temporal_causal_depth() returns "causal_depth" (lag number
+                # 0-max_horizon) not "temporal_causal_depth".
+                causal_depths.append(float(cd.get("causal_depth", 0.0)))
             except Exception:
-                causal_depths.append(1.0)
-        mean_causal_depth = float(np.mean(causal_depths)) if causal_depths else 1.0
+                causal_depths.append(0.0)
+        mean_causal_depth = float(np.mean(causal_depths)) if causal_depths else 0.0
 
         pool.append({
             "candidate_id": cand.candidate_id,
@@ -104,7 +106,7 @@ def _survival_polytope_selector(
     composition_threshold: float = 0.25,
     scale_threshold: float = 0.2,
     interop_threshold: float = 0.25,
-    memory_threshold: float = 0.8,
+    memory_threshold: float = 0.0,  # causal_depth is lag count (0-10), not 0-1 score
     closure_threshold: float = 0.15,
     top_k: int = 5,
 ) -> list[dict]:
