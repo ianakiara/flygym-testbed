@@ -156,6 +156,12 @@ def backbone_shared_score(
         scale_drift = float(candidate.score_components["scale_drift"])
     if "degeneracy_penalty" in candidate.score_components:
         degeneracy_penalty = float(candidate.score_components["degeneracy_penalty"])
+    if "functional_transfer_gain" in candidate.score_components:
+        functional_transfer_gain = float(candidate.score_components["functional_transfer_gain"])
+    if "portability_fraction" in candidate.score_components:
+        portability_fraction = float(
+            np.clip(candidate.score_components["portability_fraction"], 0.0, 1.0)
+        )
 
     profile = shared_structure_profile(
         redundancy=redundancy,

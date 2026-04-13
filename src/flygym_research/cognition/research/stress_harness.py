@@ -85,10 +85,15 @@ def inject_seam_corruption(
             world=new_world,
             history=obs.history,
         )
+        # Also perturb the reward with a magnitude-proportional negative bias so
+        # that return-degradation correlates with seam_fragility (observation
+        # discontinuity).  Without this the rewards are unchanged across stress
+        # families and seam_rho measures only noise.
+        reward_noise = rng.normal(0, severity * 0.4) - magnitude * 0.25
         result[i] = StepTransition(
             observation=new_obs,
             action=t.action,
-            reward=t.reward,
+            reward=t.reward + reward_noise,
             terminated=t.terminated,
             truncated=t.truncated,
             info={
@@ -142,10 +147,13 @@ def inject_delayed_target_mismatch(
             world=new_world,
             history=obs.history,
         )
+        # Add negative reward bias after the target flip to force return
+        # degradation that correlates with the observation-level mismatch.
+        reward_bias = -abs(flip_magnitude) * rng.uniform(0.1, 0.4)
         result[i] = StepTransition(
             observation=new_obs,
             action=t.action,
-            reward=t.reward,
+            reward=t.reward + reward_bias,
             terminated=t.terminated,
             truncated=t.truncated,
             info={

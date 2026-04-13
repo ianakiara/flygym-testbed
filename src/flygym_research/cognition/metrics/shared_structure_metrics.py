@@ -28,21 +28,40 @@ def shared_structure_profile(
     portability_weight: float = 0.25,
     function_weight: float = 0.35,
 ) -> dict[str, float | str]:
+    # Use authentic portability: high portability combined with high interop-loss
+    # indicates false portability and should not be rewarded.
+    authentic_portability = float(
+        np.clip(portability_fraction * (1.0 - interop_loss), 0.0, 1.0)
+    )
     coherent_core = float(
         np.clip(
             redundancy_weight * redundancy
-            + portability_weight * portability_fraction
-            + function_weight * functional_transfer_gain,
+            + portability_weight * authentic_portability
+            + function_weight * max(functional_transfer_gain, 0.0),
             0.0,
             1.0,
         )
     )
+    # Cross-term penalties penalise the characteristic failure modes:
+    #   portability × interop_loss  → false-portable (high portability but bad cross-ctrl)
+    #   portability × scale_drift   → transfer-fragile (seems portable but drifts under scale)
+    portability_interop_penalty = float(
+        np.clip(portability_fraction * interop_loss, 0.0, 1.0)
+    )
+    portability_scale_penalty = float(
+        np.clip(portability_fraction * scale_drift, 0.0, 1.0)
+    )
+    # Penalise negative functional_transfer_gain explicitly (false/adversarial portables)
+    negative_transfer_penalty = float(np.clip(-functional_transfer_gain, 0.0, 1.0))
     backbone_shared = float(
         coherent_core
         - 0.6 * seam_risk
         - 0.6 * interop_loss
         - 0.5 * scale_drift
         - 0.35 * degeneracy_penalty
+        - 0.8 * portability_interop_penalty
+        - 0.5 * portability_scale_penalty
+        - 0.4 * negative_transfer_penalty
     )
     portable_floor = float(np.clip(portability_fraction - 0.5 * scale_drift, 0.0, 1.0))
     if (
