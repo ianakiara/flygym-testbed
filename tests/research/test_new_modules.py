@@ -23,6 +23,13 @@ from flygym_research.cognition.controllers import (
 )
 from flygym_research.cognition.envs import FlyAvatarEnv
 from flygym_research.cognition.experiments import run_episode
+from flygym_research.cognition.experiments.exp_observer_interoperability import (
+    _compute_raw_agreement,
+    _compute_translated_agreement,
+    _perturb_transitions_bias,
+    _perturb_transitions_noise,
+)
+from flygym_research.cognition.experiments.exp_scale_law import _summarize_stabilities
 from flygym_research.cognition.interfaces import (
     AscendingSummary,
     BrainObservation,
@@ -45,6 +52,10 @@ from flygym_research.cognition.metrics import (
     shared_objectness_score,
     state_decay_curve,
     target_representation_stability,
+)
+from flygym_research.cognition.metrics.interoperability_metrics import (
+    extract_state_matrix,
+    translated_latent_alignment,
 )
 from flygym_research.cognition.tasks import (
     ConditionalSequenceTask,
@@ -488,6 +499,61 @@ class TestInteroperabilityMetrics:
     def test_empty_transitions(self):
         result = controller_action_distribution([])
         assert result["action_move_mean"] == 0.0
+
+    def test_translated_alignment_residual_tracks_selected_direction(self, monkeypatch):
+        import flygym_research.cognition.metrics.interoperability_metrics as interop_metrics
+
+        sentinel_a = object()
+        sentinel_b = object()
+        transitions_a = [sentinel_a] * 8
+        transitions_b = [sentinel_b] * 8
+        matrix_a = np.array(
+            [[0.0, 0.0], [1.0, 1.0], [2.0, 4.0], [3.0, 9.0], [4.0, 16.0], [5.0, 25.0], [6.0, 36.0], [7.0, 49.0]],
+            dtype=np.float64,
+        )
+        matrix_b = np.array(
+            [[0.0, 1.0], [1.0, 1.0], [2.0, 1.0], [3.0, 1.0], [4.0, 1.0], [5.0, 1.0], [6.0, 1.0], [7.0, 1.0]],
+            dtype=np.float64,
+        )
+
+        def fake_extract_state_matrix(transitions):
+            return matrix_a if transitions and transitions[0] is sentinel_a else matrix_b
+
+        monkeypatch.setattr(interop_metrics, "extract_state_matrix", fake_extract_state_matrix)
+        result = translated_latent_alignment(transitions_a, transitions_b)
+        assert result["translation_r2_ab"] == pytest.approx(1.0)
+        assert result["translation_r2_ba"] < result["translation_r2_ab"]
+        assert result["translation_residual_norm"] == pytest.approx(0.0)
+
+
+class TestObserverInteropExperiment:
+    def test_noise_perturbation_changes_measured_state(self):
+        transitions = _make_transitions(10)
+        perturbed = _perturb_transitions_noise(
+            transitions,
+            scale=0.4,
+            rng=np.random.default_rng(0),
+        )
+        assert not np.allclose(
+            extract_state_matrix(transitions),
+            extract_state_matrix(perturbed),
+        )
+        raw = _compute_raw_agreement(transitions, perturbed)
+        assert raw["raw_mse"] > 0.0
+
+    def test_translation_improves_over_raw_for_bias_perturbation(self):
+        transitions = _make_transitions(10)
+        perturbed = _perturb_transitions_bias(transitions, bias=1.5)
+        raw = _compute_raw_agreement(transitions, perturbed)
+        translated = _compute_translated_agreement(transitions, perturbed)
+        assert raw["raw_mse"] > translated["translated_mse"]
+
+
+class TestScaleLawHelpers:
+    def test_stability_summary_keeps_infinite_coefficients_unstable(self):
+        summary = _summarize_stabilities([float("inf"), 0.1, 0.2])
+        assert summary["mean_stability_cv"] == pytest.approx(0.15)
+        assert not summary["is_stable"]
 
 
 # ─── Objectness metrics ───────────────────────────────────────────────

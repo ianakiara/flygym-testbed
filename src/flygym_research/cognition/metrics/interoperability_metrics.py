@@ -220,32 +220,25 @@ def translated_latent_alignment(
     Za_norm = (Za - mean_a) / std_a
     Zb_norm = (Zb - mean_b) / std_b
 
-    def _r2(source: np.ndarray, target: np.ndarray) -> float:
-        """Fit T: source → target via least squares, return R²."""
+    def _fit_alignment(source: np.ndarray, target: np.ndarray) -> tuple[float, float]:
+        """Fit T: source → target via least squares, return (R², residual_norm)."""
         # Add bias column
         src_bias = np.hstack([source, np.ones((source.shape[0], 1))])
         try:
-            T, residuals, rank, sv = np.linalg.lstsq(src_bias, target, rcond=None)
+            T, _, _, _ = np.linalg.lstsq(src_bias, target, rcond=None)
         except np.linalg.LinAlgError:
-            return 0.0
+            return 0.0, 0.0
         pred = src_bias @ T
         ss_res = float(np.sum((target - pred) ** 2))
         ss_tot = float(np.sum((target - target.mean(axis=0)) ** 2))
+        residual_norm = float(np.linalg.norm(target - pred)) / n
         if ss_tot < 1e-12:
-            return 0.0
-        return max(0.0, 1.0 - ss_res / ss_tot)
+            return 0.0, residual_norm
+        return max(0.0, 1.0 - ss_res / ss_tot), residual_norm
 
-    r2_ab = _r2(Za_norm, Zb_norm)
-    r2_ba = _r2(Zb_norm, Za_norm)
-
-    # Residual norm (for diagnostics)
-    src_bias = np.hstack([Za_norm, np.ones((Za_norm.shape[0], 1))])
-    try:
-        T, _, _, _ = np.linalg.lstsq(src_bias, Zb_norm, rcond=None)
-        pred = src_bias @ T
-        res_norm = float(np.linalg.norm(Zb_norm - pred)) / n
-    except np.linalg.LinAlgError:
-        res_norm = 0.0
+    r2_ab, res_norm_ab = _fit_alignment(Za_norm, Zb_norm)
+    r2_ba, res_norm_ba = _fit_alignment(Zb_norm, Za_norm)
+    res_norm = res_norm_ab if r2_ab >= r2_ba else res_norm_ba
 
     return {
         "translated_alignment": max(r2_ab, r2_ba),

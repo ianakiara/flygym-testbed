@@ -179,6 +179,24 @@ def _stability_coefficient(values: list[float]) -> float:
     return float(std / (mean_abs + 1e-8))
 
 
+def _summarize_stabilities(stabilities: list[float]) -> dict[str, float | bool]:
+    """Aggregate per-episode stability coefficients without masking infinities."""
+    if not stabilities:
+        return {
+            "mean_stability_cv": float("inf"),
+            "std_stability_cv": 0.0,
+            "is_stable": False,
+        }
+    finite = [value for value in stabilities if np.isfinite(value)]
+    mean_cv = float(np.mean(finite)) if finite else float("inf")
+    std_cv = float(np.std(finite)) if finite else 0.0
+    return {
+        "mean_stability_cv": mean_cv,
+        "std_stability_cv": std_cv,
+        "is_stable": len(finite) == len(stabilities) and mean_cv < 0.5,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Main experiment
 # ---------------------------------------------------------------------------
@@ -215,11 +233,7 @@ def run_experiment(
         for ep_id, values in ep_values.items():
             stab = _stability_coefficient(values)
             stabilities.append(stab)
-        stability_summary[prop_name] = {
-            "mean_stability_cv": float(np.mean(stabilities)) if stabilities else float("inf"),
-            "std_stability_cv": float(np.std(stabilities)) if stabilities else 0.0,
-            "is_stable": float(np.mean(stabilities)) < 0.5 if stabilities else False,
-        }
+        stability_summary[prop_name] = _summarize_stabilities(stabilities)
 
     # Candidate-level scale analysis
     artifact = compress_trace_bank(episodes)

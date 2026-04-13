@@ -19,8 +19,58 @@ from ..metrics import (
     raw_latent_alignment,
     translated_latent_alignment,
 )
+from ..interfaces import AscendingSummary, BrainObservation, RawBodyFeedback, StepTransition, WorldState
 from ..metrics.interoperability_metrics import extract_state_matrix
 from .exp_sleep_trace_compressor import collect_trace_bank
+
+
+def _clone_transition(
+    transition,
+    *,
+    raw_body: RawBodyFeedback | None = None,
+    features: dict[str, float] | None = None,
+    observables: dict | None = None,
+    info: dict | None = None,
+) -> StepTransition:
+    summary = AscendingSummary(
+        features=features or dict(transition.observation.summary.features),
+        active_channels=transition.observation.summary.active_channels,
+        disabled_channels=transition.observation.summary.disabled_channels,
+    )
+    world = WorldState(
+        mode=transition.observation.world.mode,
+        step_count=transition.observation.world.step_count,
+        reward=transition.observation.world.reward,
+        terminated=transition.observation.world.terminated,
+        truncated=transition.observation.world.truncated,
+        observables=observables or dict(transition.observation.world.observables),
+        info=info or dict(transition.observation.world.info),
+    )
+    observation = BrainObservation(
+        raw_body=raw_body or transition.observation.raw_body,
+        summary=summary,
+        world=world,
+        history=transition.observation.history,
+    )
+    return StepTransition(
+        observation=observation,
+        action=transition.action,
+        reward=transition.reward,
+        terminated=transition.terminated,
+        truncated=transition.truncated,
+        info=world.info,
+    )
+
+
+def _copy_world_observables(transition, *, avatar_xy=None, heading=None, target_vector=None) -> dict:
+    observables = dict(transition.observation.world.observables)
+    if avatar_xy is not None:
+        observables["avatar_xy"] = np.asarray(avatar_xy, dtype=np.float64)
+    if heading is not None:
+        observables["heading"] = float(heading)
+    if target_vector is not None:
+        observables["target_vector"] = np.asarray(target_vector, dtype=np.float64)
+    return observables
 
 
 # ---------------------------------------------------------------------------
@@ -32,7 +82,6 @@ def _perturb_transitions_noise(transitions: list, *, scale: float = 0.3, rng: np
     rng = rng or np.random.default_rng(0)
     perturbed = []
     for t in transitions:
-        from ..interfaces import StepTransition, BrainObservation, RawBodyFeedback
         noisy_positions = t.observation.raw_body.body_positions + rng.normal(0, scale, t.observation.raw_body.body_positions.shape)
         noisy_feedback = RawBodyFeedback(
             time=t.observation.raw_body.time,
@@ -48,17 +97,40 @@ def _perturb_transitions_noise(transitions: list, *, scale: float = 0.3, rng: np
             contact_tangents=t.observation.raw_body.contact_tangents,
             actuator_forces=t.observation.raw_body.actuator_forces,
         )
-        noisy_obs = BrainObservation(
-            raw_body=noisy_feedback,
-            summary=t.observation.summary,
-            world=t.observation.world,
-            history=t.observation.history,
+        features = dict(t.observation.summary.features)
+        for key in (
+            "body_speed_mm_s",
+            "locomotion_quality",
+            "actuator_effort",
+            "phase",
+            "phase_velocity",
+        ):
+            features[key] = float(features.get(key, 0.0) + rng.normal(0.0, scale))
+        target_vec = np.asarray(
+            t.observation.world.observables.get("target_vector", np.zeros(2)),
+            dtype=np.float64,
         )
-        perturbed.append(StepTransition(
-            observation=noisy_obs, action=t.action,
-            reward=t.reward, terminated=t.terminated,
-            truncated=t.truncated, info=t.info,
-        ))
+        noisy_target = target_vec + rng.normal(0.0, scale, target_vec.shape)
+        avatar_xy = np.asarray(
+            t.observation.world.observables.get("avatar_xy", np.zeros(2)),
+            dtype=np.float64,
+        ) + rng.normal(0.0, scale, 2)
+        info = dict(t.info)
+        info["distance_to_target"] = float(info.get("distance_to_target", 0.0) + rng.normal(0.0, scale))
+        perturbed.append(
+            _clone_transition(
+                t,
+                raw_body=noisy_feedback,
+                features=features,
+                observables=_copy_world_observables(
+                    t,
+                    avatar_xy=avatar_xy,
+                    heading=t.observation.world.observables.get("heading", 0.0) + rng.normal(0.0, scale * 0.25),
+                    target_vector=noisy_target,
+                ),
+                info=info,
+            )
+        )
     return perturbed
 
 
@@ -66,7 +138,6 @@ def _perturb_transitions_scaling(transitions: list, *, factor: float = 2.0) -> l
     """Scale observations by a constant factor."""
     perturbed = []
     for t in transitions:
-        from ..interfaces import StepTransition, BrainObservation, RawBodyFeedback
         scaled_feedback = RawBodyFeedback(
             time=t.observation.raw_body.time,
             joint_angles=t.observation.raw_body.joint_angles * factor,
@@ -81,17 +152,33 @@ def _perturb_transitions_scaling(transitions: list, *, factor: float = 2.0) -> l
             contact_tangents=t.observation.raw_body.contact_tangents,
             actuator_forces=t.observation.raw_body.actuator_forces,
         )
-        scaled_obs = BrainObservation(
-            raw_body=scaled_feedback,
-            summary=t.observation.summary,
-            world=t.observation.world,
-            history=t.observation.history,
+        features = {
+            key: float(value * factor)
+            for key, value in t.observation.summary.features.items()
+        }
+        target_vec = np.asarray(
+            t.observation.world.observables.get("target_vector", np.zeros(2)),
+            dtype=np.float64,
+        ) * factor
+        avatar_xy = np.asarray(
+            t.observation.world.observables.get("avatar_xy", np.zeros(2)),
+            dtype=np.float64,
+        ) * factor
+        info = dict(t.info)
+        info["distance_to_target"] = float(info.get("distance_to_target", 0.0) * factor)
+        perturbed.append(
+            _clone_transition(
+                t,
+                raw_body=scaled_feedback,
+                features=features,
+                observables=_copy_world_observables(
+                    t,
+                    avatar_xy=avatar_xy,
+                    target_vector=target_vec,
+                ),
+                info=info,
+            )
         )
-        perturbed.append(StepTransition(
-            observation=scaled_obs, action=t.action,
-            reward=t.reward, terminated=t.terminated,
-            truncated=t.truncated, info=t.info,
-        ))
     return perturbed
 
 
@@ -99,7 +186,6 @@ def _perturb_transitions_bias(transitions: list, *, bias: float = 1.5) -> list:
     """Add constant bias to observations."""
     perturbed = []
     for t in transitions:
-        from ..interfaces import StepTransition, BrainObservation, RawBodyFeedback
         biased_feedback = RawBodyFeedback(
             time=t.observation.raw_body.time,
             joint_angles=t.observation.raw_body.joint_angles + bias,
@@ -114,17 +200,33 @@ def _perturb_transitions_bias(transitions: list, *, bias: float = 1.5) -> list:
             contact_tangents=t.observation.raw_body.contact_tangents,
             actuator_forces=t.observation.raw_body.actuator_forces,
         )
-        biased_obs = BrainObservation(
-            raw_body=biased_feedback,
-            summary=t.observation.summary,
-            world=t.observation.world,
-            history=t.observation.history,
+        features = {
+            key: float(value + bias)
+            for key, value in t.observation.summary.features.items()
+        }
+        target_vec = np.asarray(
+            t.observation.world.observables.get("target_vector", np.zeros(2)),
+            dtype=np.float64,
+        ) + bias
+        avatar_xy = np.asarray(
+            t.observation.world.observables.get("avatar_xy", np.zeros(2)),
+            dtype=np.float64,
+        ) + bias
+        info = dict(t.info)
+        info["distance_to_target"] = float(info.get("distance_to_target", 0.0) + bias)
+        perturbed.append(
+            _clone_transition(
+                t,
+                raw_body=biased_feedback,
+                features=features,
+                observables=_copy_world_observables(
+                    t,
+                    avatar_xy=avatar_xy,
+                    target_vector=target_vec,
+                ),
+                info=info,
+            )
         )
-        perturbed.append(StepTransition(
-            observation=biased_obs, action=t.action,
-            reward=t.reward, terminated=t.terminated,
-            truncated=t.truncated, info=t.info,
-        ))
     return perturbed
 
 
@@ -133,7 +235,6 @@ def _perturb_transitions_partial(transitions: list, *, drop_fraction: float = 0.
     rng = rng or np.random.default_rng(0)
     perturbed = []
     for t in transitions:
-        from ..interfaces import StepTransition, BrainObservation, RawBodyFeedback
         mask = rng.random(t.observation.raw_body.joint_angles.shape) > drop_fraction
         partial_feedback = RawBodyFeedback(
             time=t.observation.raw_body.time,
@@ -149,17 +250,42 @@ def _perturb_transitions_partial(transitions: list, *, drop_fraction: float = 0.
             contact_tangents=t.observation.raw_body.contact_tangents,
             actuator_forces=t.observation.raw_body.actuator_forces,
         )
-        partial_obs = BrainObservation(
-            raw_body=partial_feedback,
-            summary=t.observation.summary,
-            world=t.observation.world,
-            history=t.observation.history,
+        features = dict(t.observation.summary.features)
+        for key in (
+            "body_speed_mm_s",
+            "locomotion_quality",
+            "actuator_effort",
+            "phase",
+            "phase_velocity",
+        ):
+            if rng.random() < drop_fraction:
+                features[key] = 0.0
+        target_vec = np.asarray(
+            t.observation.world.observables.get("target_vector", np.zeros(2)),
+            dtype=np.float64,
         )
-        perturbed.append(StepTransition(
-            observation=partial_obs, action=t.action,
-            reward=t.reward, terminated=t.terminated,
-            truncated=t.truncated, info=t.info,
-        ))
+        keep_target = rng.random(target_vec.shape) > drop_fraction
+        avatar_xy = np.asarray(
+            t.observation.world.observables.get("avatar_xy", np.zeros(2)),
+            dtype=np.float64,
+        )
+        keep_avatar = rng.random(avatar_xy.shape) > drop_fraction
+        info = dict(t.info)
+        if rng.random() < drop_fraction:
+            info["distance_to_target"] = 0.0
+        perturbed.append(
+            _clone_transition(
+                t,
+                raw_body=partial_feedback,
+                features=features,
+                observables=_copy_world_observables(
+                    t,
+                    avatar_xy=avatar_xy * keep_avatar.astype(np.float64),
+                    target_vector=target_vec * keep_target.astype(np.float64),
+                ),
+                info=info,
+            )
+        )
     return perturbed
 
 
@@ -298,11 +424,17 @@ def run_experiment(
     # Pass criteria
     overall_raw_corr = float(np.mean(all_raw_scores)) if all_raw_scores else 0.0
     overall_translated_corr = float(np.mean(all_translated_scores)) if all_translated_scores else 0.0
-    translation_consistently_better = overall_translated_corr > overall_raw_corr
+    mean_raw_mse = float(
+        np.mean([result["mean_raw_mse"] for result in results_by_perturbation.values()])
+    ) if results_by_perturbation else 0.0
+    mean_translated_mse = float(
+        np.mean([result["mean_translated_mse"] for result in results_by_perturbation.values()])
+    ) if results_by_perturbation else 0.0
+    translation_consistently_better = mean_translated_mse < mean_raw_mse
 
-    # Check consistency across all perturbation types
+    # Check consistency across all perturbation types using the primary MSE signal.
     consistently_better = all(
-        results_by_perturbation[p]["mean_translation_improvement_corr"] > 0
+        results_by_perturbation[p]["mean_translation_improvement_mse"] > 0
         for p in results_by_perturbation
     )
 
@@ -310,9 +442,12 @@ def run_experiment(
         "results_by_perturbation": results_by_perturbation,
         "pass_criteria": {
             "translation_gt_raw_consistently": translation_consistently_better and consistently_better,
+            "overall_raw_mse": mean_raw_mse,
+            "overall_translated_mse": mean_translated_mse,
             "overall_raw_correlation": overall_raw_corr,
             "overall_translated_correlation": overall_translated_corr,
-            "improvement": overall_translated_corr - overall_raw_corr,
+            "improvement_mse": mean_raw_mse - mean_translated_mse,
+            "improvement_corr": overall_translated_corr - overall_raw_corr,
         },
         "summary": {
             "n_perturbation_types": len(PERTURBATION_TYPES),
