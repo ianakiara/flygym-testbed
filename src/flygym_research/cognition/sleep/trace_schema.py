@@ -307,7 +307,7 @@ class SleepCandidate:
     representative_episode_id: str
     member_episode_ids: list[str]
     evidence: dict[str, Any]
-    score_components: dict[str, float | str]
+    score_components: dict[str, float | str | bool]
     residual_episode_ids: list[str] = field(default_factory=list)
     redundancy_tier: str = "local"
     portability_evidence: dict[str, Any] = field(default_factory=dict)

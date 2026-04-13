@@ -27,10 +27,12 @@ def _episodes_by_id(episodes: list[TraceEpisode]) -> dict[str, TraceEpisode]:
     return {episode.episode_id: episode for episode in episodes}
 
 
-def _mean_counterfactual_divergence(divergence: dict[str, float | list]) -> float:
-    return float(
-        divergence.get("mean_translation_divergence", divergence.get("mean_reward_divergence", 0.0))
+def _mean_counterfactual_divergence(divergence: dict[str, object]) -> float:
+    value = divergence.get(
+        "mean_translation_divergence",
+        divergence.get("mean_reward_divergence", 0.0),
     )
+    return float(value) if isinstance(value, (int, float)) else 0.0
 
 
 def backbone_shared_score(

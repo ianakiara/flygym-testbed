@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import numpy as np
 
+COHERENT_BACKBONE_THRESHOLD = 0.2
+DEGENERACY_CEILING = 0.2
+DEGRADED_PORTABLE_FLOOR = 0.2
+DEGRADED_BACKBONE_FLOOR = -0.05
+
 
 def shared_structure_profile(
     *,
@@ -33,9 +38,15 @@ def shared_structure_profile(
         - 0.7 * degeneracy_penalty
     )
     portable_floor = float(np.clip(portability_fraction - 0.5 * scale_drift, 0.0, 1.0))
-    if backbone_shared >= 0.2 and degeneracy_penalty <= 0.2:
+    if (
+        backbone_shared >= COHERENT_BACKBONE_THRESHOLD
+        and degeneracy_penalty <= DEGENERACY_CEILING
+    ):
         regime = "coherent_shared_structure"
-    elif portable_floor >= 0.2 and backbone_shared > -0.05:
+    elif (
+        portable_floor >= DEGRADED_PORTABLE_FLOOR
+        and backbone_shared > DEGRADED_BACKBONE_FLOOR
+    ):
         regime = "portable_but_degraded"
     else:
         regime = "degenerate_convergence"

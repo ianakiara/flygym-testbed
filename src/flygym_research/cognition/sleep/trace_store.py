@@ -7,9 +7,9 @@ from typing import Any
 from .trace_schema import SleepArtifact, SleepCandidate, TraceEpisode
 
 
-def _coerce_score_component(value: Any) -> float | str:
+def _coerce_score_component(value: Any) -> float | str | bool:
     if isinstance(value, bool):
-        raise TypeError("Score components must not store boolean values.")
+        return value
     if isinstance(value, (int, float)):
         return float(value)
     if isinstance(value, str):

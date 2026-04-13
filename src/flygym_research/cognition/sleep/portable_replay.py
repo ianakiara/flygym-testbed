@@ -121,10 +121,6 @@ def benchmark_portable_replay(
         candidate.score_components["safe_compression_score"] = safe_compression_score(
             candidate,
             episodes,
-            alpha=1.0,
-            beta=0.6,
-            gamma=0.6,
-            delta=0.5,
         )["safe_compression_score"]
         candidate_row = {
             "candidate_id": candidate.candidate_id,
