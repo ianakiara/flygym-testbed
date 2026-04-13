@@ -103,6 +103,35 @@ COMPOSITION_STRATEGIES = {
 }
 
 
+def _compute_return_degradation(rewards: list[float]) -> float:
+    """Per-step return drop from first half to second half."""
+    n_steps = len(rewards)
+    if n_steps < 2:
+        return 0.0
+    mid = n_steps // 2
+    if mid <= 0 or mid >= n_steps:
+        return 0.0
+    first_half_mean = float(np.mean(rewards[:mid]))
+    second_half_mean = float(np.mean(rewards[mid:]))
+    return first_half_mean - second_half_mean
+
+
+def _paired_win_rate(trials: list[dict], better: str, worse: str) -> float:
+    """Fraction of paired trials where ``better`` strictly beats ``worse``."""
+    wins = 0
+    total = 0
+    by_pair = defaultdict(dict)
+    for t in trials:
+        key = (t["family"], t["ep_a"], t["ep_b"])
+        by_pair[key][t["strategy"]] = t["return"]
+    for strats in by_pair.values():
+        if better in strats and worse in strats:
+            total += 1
+            if strats[better] > strats[worse]:
+                wins += 1
+    return float(wins / max(total, 1))
+
+
 # ---------------------------------------------------------------------------
 # Seam stress families
 # ---------------------------------------------------------------------------
@@ -239,10 +268,7 @@ def run_experiment(
                 n_steps = len(composed)
 
                 # Delayed failure: did performance degrade in second half?
-                mid = n_steps // 2
-                first_half_return = float(np.sum(rewards[:mid])) if mid > 0 else 0.0
-                second_half_return = float(np.sum(rewards[mid:])) if mid < n_steps else 0.0
-                degradation = first_half_return - second_half_return
+                degradation = _compute_return_degradation(rewards)
 
                 # Path divergence after seam
                 seam_idx = len(ep_a.transitions)
@@ -272,23 +298,8 @@ def run_experiment(
     # Pass criteria: paired win rates
     # ---------------------------------------------------------------------------
 
-    def _paired_win_rate(better: str, worse: str) -> float:
-        """Fraction of paired trials where 'better' strategy beats 'worse'."""
-        wins = 0
-        total = 0
-        by_pair = defaultdict(dict)
-        for t in trials:
-            key = (t["family"], t["ep_a"], t["ep_b"])
-            by_pair[key][t["strategy"]] = t["return"]
-        for key, strats in by_pair.items():
-            if better in strats and worse in strats:
-                total += 1
-                if strats[better] >= strats[worse]:
-                    wins += 1
-        return float(wins / max(total, 1))
-
-    boundary_gt_bulk = _paired_win_rate("boundary", "bulk")
-    corner_gt_boundary = _paired_win_rate("corner", "boundary")
+    boundary_gt_bulk = _paired_win_rate(trials, "boundary", "bulk")
+    corner_gt_boundary = _paired_win_rate(trials, "corner", "boundary")
 
     # Seam correlation with failure
     seam_arr = np.array(seam_defects)

@@ -6,9 +6,8 @@ pass/fail criteria per the runbook.
 
 from __future__ import annotations
 
-import json
 import os
-from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -78,7 +77,6 @@ class TestInfrastructureModules:
     def test_observer_families_imports(self):
         from flygym_research.cognition.research.observer_families import (
             OBSERVER_FAMILIES,
-            apply_observer_perturbation,
         )
         assert len(OBSERVER_FAMILIES) == 9
 
@@ -99,8 +97,6 @@ class TestInfrastructureModules:
     def test_scale_transforms_imports(self):
         from flygym_research.cognition.research.scale_transforms import (
             SCALE_TRANSFORMS,
-            compute_fake_metrics,
-            compute_real_metrics,
         )
         assert len(SCALE_TRANSFORMS) >= 7
 
@@ -374,3 +370,82 @@ class TestExpScaleContrastiveV2:
 
     def test_collapse_rate(self, results):
         assert "collapse_rate_fake" in results["separation_metrics"]
+
+
+class TestPr5FormulaFixes:
+    def test_deep_memory_scalar_controller_is_distinct(self, tmp_path):
+        from flygym_research.cognition.experiments.exp_deep_memory_v2 import (
+            run_experiment,
+        )
+
+        results = run_experiment(output_dir=tmp_path, episode_steps=20, n_seeds=2)
+        reduced = results["controller_summary"]["reduced_descending"]
+        scalar = results["controller_summary"]["scalar_memory"]
+        assert reduced != scalar
+
+    def test_long_composition_ties_do_not_count_as_wins(self):
+        from flygym_research.cognition.experiments.exp_long_composition import (
+            _paired_win_rate,
+        )
+
+        trials = [
+            {"family": "clean", "ep_a": "a", "ep_b": "b", "strategy": "bulk", "return": 1.0},
+            {"family": "clean", "ep_a": "a", "ep_b": "b", "strategy": "boundary", "return": 1.0},
+            {"family": "clean", "ep_a": "c", "ep_b": "d", "strategy": "bulk", "return": 0.0},
+            {"family": "clean", "ep_a": "c", "ep_b": "d", "strategy": "boundary", "return": 2.0},
+        ]
+
+        assert _paired_win_rate(trials, "boundary", "bulk") == pytest.approx(0.5)
+
+    def test_long_composition_degradation_is_length_normalized(self):
+        from flygym_research.cognition.experiments.exp_long_composition import (
+            _compute_return_degradation,
+        )
+
+        short = [1.0] * 5 + [0.0] * 5
+        long = [1.0] * 50 + [0.0] * 50
+        assert _compute_return_degradation(short) == pytest.approx(
+            _compute_return_degradation(long),
+        )
+
+    def test_portable_replay_degradation_slope_uses_mismatch_severity(self):
+        from flygym_research.cognition.experiments.exp_portable_replay_v2 import (
+            _compute_degradation_slope,
+        )
+
+        replay_results = {
+            "avatar_remapped": {"return_lift": 0.0},
+            "simplified_embodied": {"return_lift": -1.0},
+            "native_physical": {"return_lift": -4.0},
+        }
+        slope = _compute_degradation_slope(replay_results, "avatar_remapped")
+        assert slope < 0.0
+
+    def test_backbone_shared_transfer_only_is_clipped(self, monkeypatch):
+        from flygym_research.cognition.experiments import exp_backbone_shared_v2 as mod
+
+        monkeypatch.setattr(
+            mod,
+            "compute_transfer_score",
+            lambda candidate, episodes: {
+                "functional_transfer_gain": 2.0,
+                "portability_fraction": 1.0,
+            },
+        )
+        score = mod._score_transfer_only(SimpleNamespace(), [])
+        assert score == 1.0
+
+    def test_backbone_shared_seed_stability_is_not_hardcoded_true(self):
+        from flygym_research.cognition.experiments.exp_backbone_shared_v2 import (
+            _compute_seed_stability,
+        )
+
+        stability = _compute_seed_stability([], min_pool_size=20)
+        assert stability["stable"] is False
+
+    def test_scale_contrastive_rank_correlation_is_finite_for_constant_inputs(self):
+        from flygym_research.cognition.experiments.exp_scale_contrastive_v2 import (
+            _rank_correlation,
+        )
+
+        assert _rank_correlation([1.0, 1.0, 1.0], [2.0, 2.0, 2.0]) == 0.0

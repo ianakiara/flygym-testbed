@@ -80,7 +80,6 @@ def _consistency_filter(
 
 def _assign_functional_tier(
     candidate: SleepCandidate,
-    episodes: list[TraceEpisode],
     replay_results: dict[str, dict],
     source_world: str,
     *,
@@ -99,6 +98,37 @@ def _assign_functional_tier(
     if frac_positive >= 0.4:
         return "portable"
     return "local"
+
+
+def _world_mismatch_severity(source_world: str, target_world: str) -> float:
+    """Heuristic mismatch severity used for replay degradation trends."""
+    if target_world == source_world:
+        return 0.0
+    if "native_physical" in {source_world, target_world}:
+        return 2.0
+    return 1.0
+
+
+def _compute_degradation_slope(
+    replay_results: dict[str, dict],
+    source_world: str,
+) -> float:
+    """Regression slope of return lift against world-mismatch severity."""
+    points = [
+        (
+            _world_mismatch_severity(source_world, target_world),
+            float(metrics.get("return_lift", 0.0)),
+        )
+        for target_world, metrics in replay_results.items()
+        if target_world != source_world
+    ]
+    if len(points) < 2:
+        return 0.0
+    x = np.array([p[0] for p in points], dtype=np.float64)
+    y = np.array([p[1] for p in points], dtype=np.float64)
+    if np.std(x) < 1e-8 or np.std(y) < 1e-8:
+        return 0.0
+    return float(np.polyfit(x, y, deg=1)[0])
 
 
 # ---------------------------------------------------------------------------
@@ -209,7 +239,7 @@ def run_experiment(
         # Functional tier assignment
         original_tier = cand.redundancy_tier
         functional_tier = _assign_functional_tier(
-            cand, episodes, replay_results, source_world,
+            cand, replay_results, source_world,
             consistency_score=cons_score,
         )
         if original_tier == "universal" and not passes_filter:
@@ -221,11 +251,7 @@ def run_experiment(
         mean_success_lift = float(np.mean([r["success_lift"] for r in transfer_rows])) if transfer_rows else 0.0
 
         # Degradation slope
-        if len(transfer_rows) >= 2:
-            lifts = sorted([r["return_lift"] for r in transfer_rows])
-            degradation_slope = float(lifts[-1] - lifts[0]) / max(len(lifts) - 1, 1)
-        else:
-            degradation_slope = 0.0
+        degradation_slope = _compute_degradation_slope(replay_results, source_world)
 
         failure_under_mismatch = float(np.mean([
             1.0 if r["return_lift"] < -3.0 else 0.0 for r in transfer_rows

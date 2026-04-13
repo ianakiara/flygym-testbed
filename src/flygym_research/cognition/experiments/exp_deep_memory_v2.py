@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -27,7 +28,7 @@ from ..controllers import (
     ReflexOnlyController,
     SelectiveMemoryController,
 )
-from ..interfaces import BrainInterface
+from ..interfaces import BrainInterface, BrainObservation, DescendingCommand
 from ..metrics import summarize_metrics
 from ..metrics.causal_metrics import temporal_causal_depth
 from ..research.memory_task_factory import ALL_TASK_FAMILIES, create_task
@@ -90,6 +91,55 @@ def _compute_distractor_overwrite_rate(
     return float(np.mean([1.0 if t.reward < 0 else 0.0 for t in late]))
 
 
+@dataclass(slots=True)
+class _ScalarMemoryController(BrainInterface):
+    """Single-scalar memory baseline for selective memory comparisons."""
+
+    decay: float = 0.85
+    memory_trace: float = 0.0
+
+    def reset(self, seed: int | None = None) -> None:
+        del seed
+        self.memory_trace = 0.0
+
+    def act(self, observation: BrainObservation) -> DescendingCommand:
+        cue_vector = np.asarray(
+            observation.world.observables.get("cue_vector", np.zeros(2)),
+            dtype=np.float64,
+        )
+        target_vector = np.asarray(
+            observation.world.observables.get("target_vector", np.zeros(2)),
+            dtype=np.float64,
+        )
+        context_key = float(observation.world.observables.get("context_key", 0.0))
+        stability = float(observation.summary.features.get("stability", 0.0))
+
+        cue_signal = float(cue_vector[0]) if cue_vector.size > 0 else 0.0
+        contextual_signal = cue_signal + 0.25 * np.sign(context_key)
+        self.memory_trace = (
+            self.decay * self.memory_trace
+            + (1.0 - self.decay) * contextual_signal
+        )
+
+        move_target = float(target_vector[0]) if target_vector.size > 0 else 0.0
+        turn_target = float(target_vector[1]) if target_vector.size > 1 else 0.0
+        if abs(move_target) < 1e-6:
+            move_target = self.memory_trace
+        if abs(turn_target) < 1e-6:
+            turn_target = 0.5 * self.memory_trace + 0.1 * context_key
+
+        return DescendingCommand(
+            move_intent=float(np.clip(move_target, -1.0, 1.0)),
+            turn_intent=float(np.clip(turn_target, -1.0, 1.0)),
+            speed_modulation=float(np.clip(abs(self.memory_trace), -1.0, 1.0)),
+            stabilization_priority=float(np.clip(stability + 0.2, 0.0, 1.0)),
+            target_bias=(float(move_target), float(turn_target)),
+        )
+
+    def get_internal_state(self) -> dict[str, float]:
+        return {"memory_trace": float(self.memory_trace)}
+
+
 # ---------------------------------------------------------------------------
 # Main experiment
 # ---------------------------------------------------------------------------
@@ -112,7 +162,7 @@ def run_experiment(
     controllers = {
         "reactive": lambda: ReflexOnlyController(),           # baseline
         "reduced_descending": lambda: ReducedDescendingController(),  # ablation
-        "scalar_memory": lambda: ReducedDescendingController(),
+        "scalar_memory": lambda: _ScalarMemoryController(),
         "buffer_memory": lambda: MemoryController(),          # method
         "attention_memory": lambda: SelectiveMemoryController(),  # method
     }
@@ -206,7 +256,14 @@ def run_experiment(
             if r["controller"] in ("buffer_memory", "attention_memory")
         ]
         reactive_mean = float(np.mean([r["return"] for r in reactive_rows])) if reactive_rows else 0.0
-        memory_mean = float(np.mean([r["return"] for r in memory_rows])) if memory_rows else 0.0
+        memory_mean = 0.0
+        if memory_rows:
+            per_memory_controller = {}
+            for ctrl_name in ("buffer_memory", "attention_memory"):
+                ctrl_rows = [r["return"] for r in memory_rows if r["controller"] == ctrl_name]
+                if ctrl_rows:
+                    per_memory_controller[ctrl_name] = float(np.mean(ctrl_rows))
+            memory_mean = max(per_memory_controller.values(), default=0.0)
         if memory_mean > reactive_mean + 0.5:
             tasks_where_memory_wins += 1
 

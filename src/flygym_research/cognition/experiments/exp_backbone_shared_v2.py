@@ -41,7 +41,7 @@ def _score_entropy(candidate, episodes):
     p = normalized / (normalized.sum() + 1e-8)
     p = p[p > 0]
     entropy = -float(np.sum(p * np.log(p + 1e-12)))
-    return float(np.clip(entropy / np.log(len(returns) + 1), 0.0, 1.0))
+    return float(np.clip(entropy / np.log(max(len(returns), 2)), 0.0, 1.0))
 
 
 def _score_rank(candidate, episodes):
@@ -84,7 +84,11 @@ def _score_low_drift_only(candidate, episodes):
 
 def _score_transfer_only(candidate, episodes):
     ts = compute_transfer_score(candidate, episodes)
-    return float(ts.get("functional_transfer_gain", 0.0) + 0.5 * ts.get("portability_fraction", 0.0))
+    score = (
+        ts.get("functional_transfer_gain", 0.0)
+        + 0.5 * ts.get("portability_fraction", 0.0)
+    )
+    return float(np.clip(score, 0.0, 1.0))
 
 
 def _score_combined_learned(candidate, episodes):
@@ -156,6 +160,52 @@ def _precision_at_top(scores: list[float], labels: list[bool], k: int = 10) -> f
     paired = sorted(zip(scores, labels), key=lambda x: -x[0])
     top_k = paired[:min(k, len(paired))]
     return float(np.mean([float(label) for _, label in top_k]))
+
+
+def _compute_seed_stability(
+    episodes: list,
+    *,
+    min_pool_size: int,
+) -> dict[str, object]:
+    """Estimate BackboneShared AUC stability over per-seed candidate pools."""
+    per_seed_auc: dict[int, float] = {}
+    for seed in sorted({ep.seed for ep in episodes}):
+        seed_episodes = [ep for ep in episodes if ep.seed == seed]
+        if len(seed_episodes) < 2:
+            continue
+        seed_candidates, seed_labels = build_candidate_pool(
+            seed_episodes,
+            min_pool_size=min_pool_size,
+        )
+        if not seed_candidates:
+            continue
+        scores = []
+        labels = []
+        for cand in seed_candidates:
+            scores.append(_score_backbone_shared(cand, seed_episodes))
+            labels.append(seed_labels.get(cand.candidate_id) == "valid_shared")
+        per_seed_auc[seed] = _compute_auc(scores, labels)
+
+    aucs = list(per_seed_auc.values())
+    if len(aucs) < 2:
+        return {
+            "per_seed_auc": per_seed_auc,
+            "mean_auc": float(np.mean(aucs)) if aucs else 0.0,
+            "std_auc": 0.0,
+            "cv_auc": 0.0,
+            "stable": False,
+        }
+
+    mean_auc = float(np.mean(aucs))
+    std_auc = float(np.std(aucs))
+    cv_auc = float(std_auc / (abs(mean_auc) + 1e-8))
+    return {
+        "per_seed_auc": per_seed_auc,
+        "mean_auc": mean_auc,
+        "std_auc": std_auc,
+        "cv_auc": cv_auc,
+        "stable": cv_auc < 0.10,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -265,6 +315,7 @@ def run_experiment(
     entropy_p10 = model_results["entropy"]["precision_at_top_decile"]
     rank_p10 = model_results["rank"]["precision_at_top_decile"]
     bs_p10 = model_results["backbone_shared"]["precision_at_top_decile"]
+    seed_stability = _compute_seed_stability(episodes, min_pool_size=max(20, min_pool_size // 2))
 
     payload = {
         "model_results": model_results,
@@ -276,10 +327,11 @@ def run_experiment(
             "bs_minus_omega_auc": bs_auc - omega_auc,
             "bs_top_decile_beats_entropy": bs_p10 > entropy_p10,
             "bs_top_decile_beats_rank": bs_p10 > rank_p10,
-            "stable_across_seeds": True,  # TODO: multi-seed cross-validation
+            "stable_across_seeds": bool(seed_stability["stable"]),
         },
         "confusion_matrix": confusion,
         "feature_importance": ablation_results,
+        "seed_stability": seed_stability,
         "failure_examples": [
             {
                 "candidate_id": cid,

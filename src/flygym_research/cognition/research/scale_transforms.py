@@ -288,8 +288,14 @@ def compute_real_metrics(transitions: list[StepTransition]) -> dict[str, float]:
         [float(getattr(t.action, "move_intent", 0.0)) for t in transitions],
         dtype=np.float64,
     )
-    if len(actions) > 2 and np.std(actions) > 1e-10:
-        path_consistency = float(np.corrcoef(actions[:-1], actions[1:])[0, 1])
+    action_prev = actions[:-1]
+    action_next = actions[1:]
+    if (
+        len(actions) > 2
+        and np.std(action_prev) > 1e-10
+        and np.std(action_next) > 1e-10
+    ):
+        path_consistency = float(np.corrcoef(action_prev, action_next)[0, 1])
         if not np.isfinite(path_consistency):
             path_consistency = 0.0
     else:

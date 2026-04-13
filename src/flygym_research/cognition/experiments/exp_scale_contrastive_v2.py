@@ -47,6 +47,30 @@ def _stability_coefficient(values: list[float]) -> float:
     return float(std / abs(mean))
 
 
+def _rank_correlation(values_a: list[float], values_b: list[float]) -> float:
+    """Finite-safe rank correlation used for cross-transform agreement."""
+    arr_a = np.asarray(values_a, dtype=np.float64)
+    arr_b = np.asarray(values_b, dtype=np.float64)
+    n = min(len(arr_a), len(arr_b))
+    if n < 3:
+        return 0.0
+    arr_a = arr_a[:n]
+    arr_b = arr_b[:n]
+    finite = np.isfinite(arr_a) & np.isfinite(arr_b)
+    if np.count_nonzero(finite) < 3:
+        return 0.0
+    arr_a = arr_a[finite]
+    arr_b = arr_b[finite]
+    if np.std(arr_a) < 1e-10 or np.std(arr_b) < 1e-10:
+        return 0.0
+    rank_a = np.argsort(np.argsort(arr_a)).astype(np.float64)
+    rank_b = np.argsort(np.argsort(arr_b)).astype(np.float64)
+    if np.std(rank_a) < 1e-10 or np.std(rank_b) < 1e-10:
+        return 0.0
+    corr = float(np.corrcoef(rank_a, rank_b)[0, 1])
+    return corr if np.isfinite(corr) else 0.0
+
+
 # ---------------------------------------------------------------------------
 # Main experiment
 # ---------------------------------------------------------------------------
@@ -71,8 +95,8 @@ def run_experiment(
     transform_names = list(SCALE_TRANSFORMS.keys())
 
     # For each episode, compute real and fake metrics at each scale
-    real_property_names = list(compute_real_metrics([]).keys()) if True else []
-    fake_property_names = list(compute_fake_metrics([]).keys()) if True else []
+    real_property_names = list(compute_real_metrics([]).keys())
+    fake_property_names = list(compute_fake_metrics([]).keys())
 
     # Collect per-property, per-transform values across all episodes
     real_values: dict[str, dict[str, list[float]]] = {
@@ -143,16 +167,9 @@ def run_experiment(
         txs = [tx for tx in transform_names if len(per_tx.get(tx, [])) > 3]
         for i in range(len(txs)):
             for j in range(i + 1, len(txs)):
-                vals_i = np.array(per_tx[txs[i]])
-                vals_j = np.array(per_tx[txs[j]])
-                n = min(len(vals_i), len(vals_j))
-                if n < 3:
-                    continue
-                # Spearman-like: correlation of ranks
-                if np.std(vals_i[:n]) > 1e-10 and np.std(vals_j[:n]) > 1e-10:
-                    corr = float(np.corrcoef(vals_i[:n], vals_j[:n])[0, 1])
-                    if np.isfinite(corr):
-                        rank_corrs.append(corr)
+                corr = _rank_correlation(per_tx[txs[i]], per_tx[txs[j]])
+                if np.isfinite(corr) and abs(corr) > 1e-12:
+                    rank_corrs.append(corr)
         rank_stability_real[prop] = float(np.mean(rank_corrs)) if rank_corrs else 0.0
 
     # Cross-transform agreement for real vs fake
@@ -190,8 +207,11 @@ def run_experiment(
     for prop in fake_property_names:
         cv = fake_stability[prop]["cv"]
         if np.isfinite(cv):
-            all_labels.append(False)  # fake
-            all_cvs_for_classifier.append(cv)
+            classifier_cv = cv
+        else:
+            classifier_cv = max(mean_fake_cv, mean_real_cv, 1.0) * 2.0
+        all_labels.append(False)  # fake
+        all_cvs_for_classifier.append(classifier_cv)
 
     # Simple threshold classifier: real = low CV, fake = high CV
     if all_cvs_for_classifier:
