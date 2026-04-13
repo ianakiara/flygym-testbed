@@ -13,14 +13,15 @@ import pytest
 
 from flygym_research.cognition.adapters import ActionAdapter, ObservationAdapter
 from flygym_research.cognition.body_reflex import BodylessBodyLayer
-from flygym_research.cognition.config import BodyLayerConfig, EnvConfig
+from flygym_research.cognition.config import EnvConfig
 from flygym_research.cognition.controllers import (
     MemoryController,
     PlannerController,
     RandomController,
     ReducedDescendingController,
+    SelectiveMemoryController,
 )
-from flygym_research.cognition.envs import FlyAvatarEnv, FlyBodyWorldEnv
+from flygym_research.cognition.envs import FlyAvatarEnv
 from flygym_research.cognition.experiments import run_episode
 from flygym_research.cognition.interfaces import (
     AscendingSummary,
@@ -46,7 +47,10 @@ from flygym_research.cognition.metrics import (
     target_representation_stability,
 )
 from flygym_research.cognition.tasks import (
+    ConditionalSequenceTask,
+    DelayedInterferenceTask,
     DelayedRewardTask,
+    DistractorCueRecallTask,
     HistoryDependenceTask,
     NavigationTask,
     SelfWorldDisambiguationTask,
@@ -59,7 +63,6 @@ from flygym_research.cognition.validation import (
     overclaiming_filter,
     validate_claim_text,
 )
-from flygym_research.cognition.worlds import SimplifiedEmbodiedWorld
 
 
 # ─── Helpers ───────────────────────────────────────────────────────────
@@ -322,6 +325,37 @@ class TestHistoryDependenceTask:
         assert "visited" in ws.observables
 
 
+class TestSelectiveMemoryTasks:
+    def test_distractor_cue_recall_reset_and_step(self):
+        task = DistractorCueRecallTask()
+        raw = _make_raw_feedback()
+        summary = _make_summary()
+        ws = task.reset(seed=0, raw_feedback=raw, summary=summary)
+        assert ws.mode == "distractor_cue_recall_task"
+        assert "cue_vector" in ws.observables
+        ws2 = task.step(DescendingCommand(), raw, summary)
+        assert "distractor_active" in ws2.info
+
+    def test_conditional_sequence_reset_and_step(self):
+        task = ConditionalSequenceTask()
+        raw = _make_raw_feedback()
+        summary = _make_summary()
+        ws = task.reset(seed=0, raw_feedback=raw, summary=summary)
+        assert ws.mode == "conditional_sequence_task"
+        assert "context_key" in ws.observables
+        ws2 = task.step(DescendingCommand(), raw, summary)
+        assert "required_order" in ws2.info
+
+    def test_delayed_interference_reset_and_step(self):
+        task = DelayedInterferenceTask()
+        raw = _make_raw_feedback()
+        summary = _make_summary()
+        ws = task.reset(seed=0, raw_feedback=raw, summary=summary)
+        assert ws.mode == "delayed_interference_task"
+        ws2 = task.step(DescendingCommand(), raw, summary)
+        assert "reward_delay" in ws2.info
+
+
 # ─── MemoryController ─────────────────────────────────────────────────
 
 
@@ -354,7 +388,7 @@ class TestMemoryController:
             t = env.step(action)
             obs = t.observation
         state = ctrl.get_internal_state()
-        assert state["memory_length"] == 4.0  # Capped at memory_size.
+        assert state["memory_length"] == 4.0
 
     def test_hidden_state_nonzero(self):
         env = FlyAvatarEnv(body=BodylessBodyLayer())
@@ -364,6 +398,26 @@ class TestMemoryController:
         ctrl.act(obs)
         assert ctrl._hidden is not None
         assert not np.allclose(ctrl._hidden, 0.0)
+
+
+class TestSelectiveMemoryController:
+    def test_reset_and_act(self):
+        env = FlyAvatarEnv(body=BodylessBodyLayer())
+        ctrl = SelectiveMemoryController()
+        ctrl.reset(seed=0)
+        obs = env.reset(seed=0)
+        action = ctrl.act(obs)
+        assert isinstance(action, DescendingCommand)
+
+    def test_internal_state_updates(self):
+        env = FlyAvatarEnv(body=BodylessBodyLayer())
+        ctrl = SelectiveMemoryController()
+        ctrl.reset(seed=0)
+        obs = env.reset(seed=0)
+        ctrl.act(obs)
+        state = ctrl.get_internal_state()
+        assert state["step_count"] == 1.0
+        assert state["active_slots"] >= 1.0
 
 
 # ─── PlannerController ────────────────────────────────────────────────

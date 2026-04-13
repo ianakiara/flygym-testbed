@@ -8,7 +8,7 @@ from ..metrics.sleep_metrics import compression_gain, post_compression_robustnes
 from .equivalence import extract_sleep_candidates
 from .reporting import artifact_summary
 from .residuals import select_residual_exceptions
-from .scoring import residual_score, safe_compression_score
+from .scoring import backbone_shared_score, residual_score
 from .trace_schema import SleepArtifact, TraceEpisode, episode_bank_fingerprint
 
 
@@ -21,12 +21,10 @@ class CompressionConfig:
     max_scale_drift: float = 0.35
 
 
-
 def _mean_metric(episodes: list[TraceEpisode], key: str) -> float:
     if not episodes:
         return 0.0
     return float(np.mean([episode.summary_metrics.get(key, 0.0) for episode in episodes]))
-
 
 
 def compress_trace_bank(
@@ -40,23 +38,22 @@ def compress_trace_bank(
         episodes,
         min_equivalence_strength=config.min_equivalence_strength,
     )
-
     compressed_episode_ids: list[str] = []
     residual_episode_ids: list[str] = []
     for candidate in candidates:
         select_residual_exceptions(candidate, episodes)
-        score = safe_compression_score(candidate, episodes)
-        candidate.score_components.update(score)
+        candidate_score = backbone_shared_score(candidate, episodes)
+        candidate.score_components.update(candidate_score)
         candidate.score_components.update(residual_score(candidate, episodes))
         if len(candidate.member_episode_ids) == 1:
             candidate.decision = "keep_singleton"
             compressed_episode_ids.append(candidate.representative_episode_id)
             continue
         if (
-            score["safe_compression_score"] >= config.min_safe_score
-            and score["seam_risk"] <= config.max_seam_risk
-            and score["interop_loss"] <= config.max_interop_loss
-            and score["scale_drift"] <= config.max_scale_drift
+            candidate.score_components["backbone_shared_score"] >= config.min_safe_score
+            and candidate.score_components["seam_risk"] <= config.max_seam_risk
+            and candidate.score_components["interop_loss"] <= config.max_interop_loss
+            and candidate.score_components["scale_drift"] <= config.max_scale_drift
         ):
             candidate.decision = "compress"
             compressed_episode_ids.append(candidate.representative_episode_id)
@@ -65,7 +62,6 @@ def compress_trace_bank(
             candidate.decision = "review"
             compressed_episode_ids.extend(candidate.member_episode_ids)
             residual_episode_ids.extend(candidate.residual_episode_ids)
-
     unique_compressed = sorted(set(compressed_episode_ids))
     unique_residual = sorted(set(residual_episode_ids))
     compression = compression_gain(len(episodes), len(unique_compressed) + len(unique_residual))
@@ -74,15 +70,11 @@ def compress_trace_bank(
         "success": _mean_metric(episodes, "success"),
         "seam_fragility": _mean_metric(episodes, "seam_fragility"),
         "interoperability": float(
-            np.mean(
-                [
-                    candidate.score_components.get("mean_equivalence_strength", 1.0)
-                    for candidate in candidates
-                ]
-            )
-        )
-        if candidates
-        else 1.0,
+            np.mean([
+                candidate.score_components.get("mean_equivalence_strength", 1.0)
+                for candidate in candidates
+            ])
+        ) if candidates else 1.0,
     }
     compressed_pool = [
         episode
@@ -113,6 +105,8 @@ def compress_trace_bank(
             "compressed_return": compressed_metrics["return"],
             "baseline_success": baseline_metrics["success"],
             "compressed_success": compressed_metrics["success"],
+            "mean_backbone_shared": float(np.mean([candidate.score_components.get("backbone_shared_score", 0.0) for candidate in candidates])) if candidates else 0.0,
+            "portable_fraction": float(np.mean([candidate.score_components.get("portability_fraction", 0.0) for candidate in candidates])) if candidates else 0.0,
             "pass_rate": 1.0 if passed else 0.0,
             "passed": passed,
         },

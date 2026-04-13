@@ -5,7 +5,6 @@ from collections import Counter
 from .trace_schema import SleepArtifact
 
 
-
 def artifact_summary(artifact: SleepArtifact) -> dict[str, float | int]:
     validation = artifact.validation
     return {
@@ -13,9 +12,9 @@ def artifact_summary(artifact: SleepArtifact) -> dict[str, float | int]:
         "n_compressed": len(artifact.compressed_episode_ids),
         "n_residual": len(artifact.residual_episode_ids),
         "compression_gain": float(validation.get("compression_gain", 0.0)),
+        "mean_backbone_shared": float(validation.get("mean_backbone_shared", 0.0)),
         "pass": int(bool(validation.get("passed", False))),
     }
-
 
 
 def sleep_artifact_to_markdown(artifact: SleepArtifact) -> str:
@@ -32,9 +31,21 @@ def sleep_artifact_to_markdown(artifact: SleepArtifact) -> str:
     decision_counts = Counter(candidate.decision for candidate in artifact.candidates)
     for decision, count in sorted(decision_counts.items()):
         lines.append(f"- {decision}: {count}")
+    lines.extend(["", "## Redundancy tiers", ""])
+    tier_counts = Counter(candidate.redundancy_tier for candidate in artifact.candidates)
+    for tier, count in sorted(tier_counts.items()):
+        lines.append(f"- {tier}: {count}")
     lines.extend(["", "## Validation", ""])
     for key, value in sorted(artifact.validation.items()):
         lines.append(f"- **{key}**: {value}")
+    lines.extend(["", "## Candidate backbone summaries", ""])
+    for candidate in artifact.candidates:
+        lines.append(
+            f"- {candidate.candidate_id}: tier={candidate.redundancy_tier}, "
+            f"backbone={candidate.score_components.get('backbone_shared_score', 0.0):.3f}, "
+            f"regime={candidate.score_components.get('shared_structure_regime', 'unknown')}, "
+            f"transfer={candidate.score_components.get('functional_transfer_gain', 0.0):.3f}"
+        )
     lines.extend(["", "## Residual exceptions", ""])
     if not artifact.residual_episode_ids:
         lines.append("- None")

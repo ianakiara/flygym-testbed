@@ -46,7 +46,6 @@ class TraceStore:
         self,
         filename: str = "sleep_artifact.json",
     ) -> SleepArtifact:
-        """Load a previously saved sleep artifact from JSON."""
         payload = json.loads((self.root / filename).read_text())
         candidates = [
             SleepCandidate(
@@ -54,14 +53,13 @@ class TraceStore:
                 representative_episode_id=c["representative_episode_id"],
                 member_episode_ids=c["member_episode_ids"],
                 evidence=c["evidence"],
-                score_components={
-                    str(k): float(v) for k, v in c["score_components"].items()
-                },
+                score_components={str(k): v for k, v in c["score_components"].items()},
                 residual_episode_ids=c.get("residual_episode_ids", []),
+                redundancy_tier=c.get("redundancy_tier", "local"),
+                portability_evidence=c.get("portability_evidence", {}),
+                functional_utility={str(k): float(v) for k, v in c.get("functional_utility", {}).items()},
                 decision=c.get("decision", "review"),
-                retained_exception_rationale=c.get(
-                    "retained_exception_rationale", {}
-                ),
+                retained_exception_rationale=c.get("retained_exception_rationale", {}),
             )
             for c in payload["candidates"]
         ]

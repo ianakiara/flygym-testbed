@@ -9,14 +9,11 @@ from ..metrics import (
     degeneracy_score,
     interoperability_score,
     seam_fragility,
+    shared_structure_profile,
+    transfer_hierarchy,
 )
-from ..metrics.sleep_metrics import (
-    compression_gain,
-    residual_utility,
-    seam_critical_exception_score,
-)
+from ..metrics.sleep_metrics import compression_gain, residual_utility, seam_critical_exception_score
 from .trace_schema import SleepCandidate, TraceEpisode
-
 
 
 def _mean_metric(episodes: list[TraceEpisode], key: str) -> float:
@@ -26,29 +23,20 @@ def _mean_metric(episodes: list[TraceEpisode], key: str) -> float:
     return float(np.mean(values))
 
 
-
 def _episodes_by_id(episodes: list[TraceEpisode]) -> dict[str, TraceEpisode]:
     return {episode.episode_id: episode for episode in episodes}
 
 
-
-def safe_compression_score(
+def backbone_shared_score(
     candidate: SleepCandidate,
     episodes: list[TraceEpisode],
     *,
-    alpha: float = 1.0,
-    beta: float = 0.6,
-    gamma: float = 0.6,
-    delta: float = 0.5,
-) -> dict[str, float]:
+    functional_transfer_gain: float | None = None,
+) -> dict[str, float | str]:
     by_id = _episodes_by_id(episodes)
     members = [by_id[episode_id] for episode_id in candidate.member_episode_ids]
     representative = by_id[candidate.representative_episode_id]
-
-    transitions_dict = {
-        episode.episode_id: episode.transitions
-        for episode in members
-    }
+    transitions_dict = {episode.episode_id: episode.transitions for episode in members}
     degeneracy = degeneracy_score(transitions_dict)
     q_red = float(
         np.clip(
@@ -58,7 +46,6 @@ def safe_compression_score(
             1.0,
         )
     )
-
     seam_scores = [
         seam_critical_exception_score(
             episode.transitions,
@@ -67,7 +54,6 @@ def safe_compression_score(
         for episode in members
     ]
     seam_risk = float(np.mean(seam_scores)) if seam_scores else 0.0
-
     interop_losses = []
     for episode in members:
         if episode.episode_id == representative.episode_id:
@@ -75,7 +61,6 @@ def safe_compression_score(
         interop = interoperability_score(representative.transitions, episode.transitions)
         interop_losses.append(1.0 - interop["interoperability_score"])
     interop_loss = float(np.mean(interop_losses)) if interop_losses else 0.0
-
     by_world: dict[str, dict[str, list]] = defaultdict(dict)
     for episode in members:
         by_world[episode.world_mode][episode.controller_name] = episode.transitions
@@ -90,22 +75,82 @@ def safe_compression_score(
                 {name: by_world[world_a][name] for name in common},
                 {name: by_world[world_b][name] for name in common},
             )
-            divergences.append(divergence["mean_divergence"])
+            divergences.append(divergence.get("mean_translation_divergence", divergence.get("mean_reward_divergence", 0.0)))
     scale_drift = float(np.mean(divergences)) if divergences else 0.0
-
     compression = compression_gain(len(members), 1)
-    safe_score = alpha * q_red - beta * seam_risk - gamma * interop_loss - delta * scale_drift
+    portability_fraction = float(
+        candidate.portability_evidence.get(
+            "portability_fraction",
+            len({episode.world_mode for episode in members}),
+        )
+    )
+    portability_fraction = portability_fraction / max(
+        len(candidate.portability_evidence.get("total_worlds", [])), 1
+    ) if portability_fraction > 1.0 else portability_fraction
+    mean_success = _mean_metric(members, "success")
+    if functional_transfer_gain is None:
+        functional_transfer_gain = candidate.functional_utility.get("functional_transfer_gain")
+    if functional_transfer_gain is None:
+        functional_transfer_gain = float(
+            np.clip(
+                portability_fraction * max(mean_success - interop_loss - 0.5 * seam_risk, 0.0),
+                0.0,
+                1.0,
+            )
+        )
+    redundancy = float(
+        np.clip(
+            0.4 * q_red
+            + 0.35 * compression["compression_gain"]
+            + 0.25 * candidate.score_components.get("mean_equivalence_strength", 1.0),
+            0.0,
+            1.0,
+        )
+    )
+    degeneracy_penalty = float(np.clip(q_red * (1.0 - mean_success), 0.0, 1.0))
+    profile = shared_structure_profile(
+        redundancy=redundancy,
+        portability_fraction=portability_fraction,
+        functional_transfer_gain=functional_transfer_gain,
+        seam_risk=seam_risk,
+        interop_loss=interop_loss,
+        scale_drift=scale_drift,
+        degeneracy_penalty=degeneracy_penalty,
+    )
+    hierarchy = transfer_hierarchy(
+        functional_transfer_gain=functional_transfer_gain,
+        portability_fraction=portability_fraction,
+    )
     return {
         "quotient_redundancy": q_red,
+        "redundancy_score": redundancy,
         "seam_risk": seam_risk,
         "interop_loss": interop_loss,
         "scale_drift": scale_drift,
         "compression_gain": compression["compression_gain"],
-        "safe_compression_score": float(safe_score),
+        "degeneracy_penalty": degeneracy_penalty,
+        "functional_transfer_gain": float(functional_transfer_gain),
+        "portability_fraction": portability_fraction,
+        "backbone_shared_score": float(profile["backbone_shared"]),
+        "safe_compression_score": float(profile["backbone_shared"]),
+        "shared_structure_regime": str(profile["shared_structure_regime"]),
+        "transfer_hierarchy_tier": str(hierarchy["transfer_hierarchy_tier"]),
         "mean_return": _mean_metric(members, "return"),
-        "mean_success": _mean_metric(members, "success"),
+        "mean_success": mean_success,
     }
 
+
+def safe_compression_score(
+    candidate: SleepCandidate,
+    episodes: list[TraceEpisode],
+    *,
+    alpha: float = 1.0,
+    beta: float = 0.6,
+    gamma: float = 0.6,
+    delta: float = 0.5,
+) -> dict[str, float | str]:
+    del alpha, beta, gamma, delta
+    return backbone_shared_score(candidate, episodes)
 
 
 def residual_score(candidate: SleepCandidate, episodes: list[TraceEpisode]) -> dict[str, float]:

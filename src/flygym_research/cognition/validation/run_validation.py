@@ -68,7 +68,9 @@ from ..metrics.publishable_metrics import (
     noise_robustness_sweep,
     dimensionality_sweep,
 )
+from ..sleep import CompressionConfig, benchmark_portable_replay, compress_trace_bank
 from ..worlds import AvatarRemappedWorld, NativePhysicalWorld, SimplifiedEmbodiedWorld
+from ..experiments.exp_sleep_trace_compressor import collect_trace_bank
 from .claims_ledger import ClaimsLedger, ClaimTier, overclaiming_filter
 from .validation_suite import ValidationSuite
 
@@ -1206,149 +1208,74 @@ def stage_8_seam_stress(output_dir: Path) -> StageResult:
 
 
 def stage_9_shared_objectness(output_dir: Path) -> StageResult:
-    """Stage 9 — Shared objectness validation.
-
-    Tests whether target tracking coherence survives cross-controller
-    stress.  The key comparison is:
-
-    * **Unstressed** objectness: each controller's target_persistence in
-      normal conditions.
-    * **Cross-controller** objectness: how well target tracking metrics
-      agree across different controller pairs (shared_objectness_score).
-    * **Stressed** objectness: same cross-controller comparison but with
-      sensor dropout (disabled ascending channels).
-
-    Pass condition: shared objectness under normal conditions beats
-    shared objectness under stress by a meaningful margin (showing that
-    the normal system maintains coherent cross-controller tracking that
-    degrades under perturbation — evidence that it's structurally real).
-    """
+    """Stage 9 — Shared-structure validation."""
     notes = []
     rows = []
-
-    env_factory = lambda: _make_avatar_env()
-    # Use pose ablation as stress — Stage 4 confirmed this causes 100%
-    # stability collapse.  contact+target channels are already 0.0 in
-    # BodylessBodyLayer so ablating them has no effect.
-    stressed_env_factory = lambda: _make_avatar_env(
-        disabled_channels=frozenset({"pose"}),
+    episodes = collect_trace_bank(
+        seeds=[0],
+        world_modes=["avatar_remapped", "simplified_embodied", "native_physical"],
+        ablations=[frozenset(), frozenset({"pose"})],
+        perturbation_tags=["baseline", "noisy"],
+        max_steps=32,
     )
+    artifact = compress_trace_bank(episodes, config=CompressionConfig())
+    replay = benchmark_portable_replay(episodes, artifact)
 
-    controllers = {
-        "reduced_descending": ReducedDescendingController(),
-        "memory": MemoryController(),
-        "planner": PlannerController(),
-        "random": RandomController(),
-    }
+    coherent = 0
+    degraded = 0
+    degenerate = 0
+    stressed_degenerate = 0
+    baseline_coherent = 0
+    for candidate in artifact.candidates:
+        score = candidate.score_components
+        world_modes = ",".join(candidate.portability_evidence.get("world_modes", []))
+        is_stressed = bool(candidate.evidence.get("ablation_channels")) or candidate.evidence.get("perturbation_tag") == "noisy"
+        regime = score.get("shared_structure_regime", "degenerate_convergence")
+        if regime == "coherent_shared_structure":
+            coherent += 1
+            if not is_stressed:
+                baseline_coherent += 1
+        elif regime == "portable_but_degraded":
+            degraded += 1
+        else:
+            degenerate += 1
+            if is_stressed:
+                stressed_degenerate += 1
+        rows.append({
+            "candidate_id": candidate.candidate_id,
+            "redundancy_tier": candidate.redundancy_tier,
+            "world_modes": world_modes,
+            "perturbation_tag": candidate.evidence.get("perturbation_tag", "baseline"),
+            "backbone_shared_score": score.get("backbone_shared_score", 0.0),
+            "functional_transfer_gain": score.get("functional_transfer_gain", 0.0),
+            "portability_fraction": score.get("portability_fraction", 0.0),
+            "shared_structure_regime": regime,
+        })
+        notes.append(
+            f"  {candidate.candidate_id}: tier={candidate.redundancy_tier}, worlds={world_modes}, "
+            f"backbone={score.get('backbone_shared_score', 0.0):.3f}, regime={regime}"
+        )
 
-    # --- Normal conditions ---
-    ctrl_transitions_normal: dict[str, list[StepTransition]] = {}
-    for ctrl_name, ctrl in controllers.items():
-        env = env_factory()
-        t = run_episode(env, ctrl, seed=0, max_steps=EPISODE_STEPS_LONG)
-        ctrl_transitions_normal[ctrl_name] = t
+    replay_by_tier = replay.get("by_tier", {})
+    for tier, values in sorted(replay_by_tier.items()):
+        notes.append(
+            f"  replay[{tier}]: backbone={values.get('mean_backbone_shared', 0.0):.3f}, "
+            f"transfer={values.get('mean_functional_transfer_gain', 0.0):.3f}, "
+            f"return_lift={values.get('mean_return_lift', 0.0):.3f}"
+        )
 
-    # --- Stressed conditions (sensor dropout) ---
-    ctrl_transitions_stressed: dict[str, list[StepTransition]] = {}
-    for ctrl_name, ctrl_cls in [
-        ("reduced_descending", ReducedDescendingController),
-        ("memory", MemoryController),
-        ("planner", PlannerController),
-        ("random", RandomController),
-    ]:
-        ctrl = ctrl_cls()
-        env = stressed_env_factory()
-        t = run_episode(env, ctrl, seed=0, max_steps=EPISODE_STEPS_LONG)
-        ctrl_transitions_stressed[ctrl_name] = t
-
-    # Cross-controller objectness: normal vs stressed
-    normal_shared = []
-    stressed_shared = []
-    normal_internal = []
-    stressed_internal = []
-
-    ctrl_names = list(controllers.keys())
-    for i in range(len(ctrl_names)):
-        for j in range(i + 1, len(ctrl_names)):
-            n1, n2 = ctrl_names[i], ctrl_names[j]
-
-            # Normal
-            t1_n, t2_n = ctrl_transitions_normal[n1], ctrl_transitions_normal[n2]
-            shared_n = shared_objectness_score(t1_n, t2_n)
-            int_n1 = target_representation_stability(t1_n)
-            int_n2 = target_representation_stability(t2_n)
-
-            # Stressed
-            t1_s, t2_s = ctrl_transitions_stressed[n1], ctrl_transitions_stressed[n2]
-            shared_s = shared_objectness_score(t1_s, t2_s)
-            int_s1 = target_representation_stability(t1_s)
-            int_s2 = target_representation_stability(t2_s)
-
-            ns = shared_n.get("shared_objectness_score", 0)
-            ss = shared_s.get("shared_objectness_score", 0)
-            ni = 0.5 * (int_n1.get("target_persistence", 0) + int_n2.get("target_persistence", 0))
-            si = 0.5 * (int_s1.get("target_persistence", 0) + int_s2.get("target_persistence", 0))
-
-            normal_shared.append(ns)
-            stressed_shared.append(ss)
-            normal_internal.append(ni)
-            stressed_internal.append(si)
-
-            row = {
-                "pair": f"{n1}_vs_{n2}",
-                "normal_shared": ns,
-                "stressed_shared": ss,
-                "shared_drop": ns - ss,
-                "normal_internal": ni,
-                "stressed_internal": si,
-                "internal_drop": ni - si,
-            }
-            rows.append(row)
-            notes.append(
-                f"  {n1} vs {n2}: normal_shared={ns:.4f}, stressed_shared={ss:.4f}, "
-                f"drop={ns-ss:.4f}"
-            )
-
-    _write_csv(rows, output_dir / "shared_objectness.csv")
-
-    mean_normal_shared = np.mean(normal_shared) if normal_shared else 0
-    mean_stressed_shared = np.mean(stressed_shared) if stressed_shared else 0
-    mean_normal_internal = np.mean(normal_internal) if normal_internal else 0
-    mean_stressed_internal = np.mean(stressed_internal) if stressed_internal else 0
-
-    # Pass condition: stress reveals a meaningful structural change.
-    # Two valid signals:
-    # (a) Internal objectness drops under stress (individual tracking degrades)
-    # (b) Shared objectness diverges from internal (stress causes collapse
-    #     to similar broken states OR preserves genuine shared structure)
-    #
-    # If shared RISES while internal DROPS, that means stress collapses
-    # controllers into degenerate similarity — a valid (negative) finding.
-    shared_drop = mean_normal_shared - mean_stressed_shared
-    internal_drop = mean_normal_internal - mean_stressed_internal
-    # Either internal tracking degrades meaningfully, or there's a divergence
-    # between shared and internal responses to stress.
-    passed = internal_drop > 0.02 or abs(shared_drop - internal_drop) > 0.05
-
-    notes.append(
-        f"  Normal shared={mean_normal_shared:.4f}, stressed={mean_stressed_shared:.4f}, "
-        f"drop={shared_drop:.4f}"
-    )
-    notes.append(
-        f"  Normal internal={mean_normal_internal:.4f}, stressed={mean_stressed_internal:.4f}, "
-        f"drop={internal_drop:.4f}"
-    )
-
+    _write_csv(rows, output_dir / "shared_structure.csv")
+    passed = coherent >= 1 and stressed_degenerate >= 1 and baseline_coherent >= 1
     return StageResult(
-        stage="Stage 9: Shared Objectness",
+        stage="Stage 9: Shared Structure",
         passed=passed,
         details={
-            "mean_normal_shared": float(mean_normal_shared),
-            "mean_stressed_shared": float(mean_stressed_shared),
-            "shared_drop": float(shared_drop),
-            "mean_normal_internal": float(mean_normal_internal),
-            "mean_stressed_internal": float(mean_stressed_internal),
-            "internal_drop": float(internal_drop),
+            "coherent_shared_structure": coherent,
+            "portable_but_degraded": degraded,
+            "degenerate_convergence": degenerate,
+            "baseline_coherent": baseline_coherent,
+            "stressed_degenerate": stressed_degenerate,
+            "portable_replay": replay.get("summary", {}),
         },
         notes=notes,
     )
@@ -1372,7 +1299,6 @@ def stage_10_transfer(output_dir: Path) -> StageResult:
         _, metrics_list = _run_seeds(factory, ctrl, SEEDS_FAST)
         world_metrics[world_name] = _agg(metrics_list)
 
-    # Check which findings survive across worlds
     finding_keys = [
         ("stability_mean_mean", "stability"),
         ("state_autocorrelation_mean", "persistence"),
@@ -1383,7 +1309,6 @@ def stage_10_transfer(output_dir: Path) -> StageResult:
     surviving_findings = []
     for metric_key, finding_name in finding_keys:
         values = [world_metrics[w].get(metric_key, 0) for w in world_metrics]
-        # Finding survives if non-zero in at least 2 worlds
         nonzero = sum(1 for v in values if abs(v) > 0.01)
         survives = nonzero >= 2
         if survives:
@@ -1394,15 +1319,33 @@ def stage_10_transfer(output_dir: Path) -> StageResult:
         rows.append(row)
         notes.append(f"  {finding_name}: nonzero in {nonzero}/3 worlds → {'SURVIVES' if survives else 'FAILS'}")
 
+    episodes = collect_trace_bank(seeds=[0], max_steps=24)
+    artifact = compress_trace_bank(episodes, config=CompressionConfig())
+    replay = benchmark_portable_replay(episodes, artifact)
+    portable = replay.get("by_tier", {}).get("portable", {})
+    universal = replay.get("by_tier", {}).get("universal", {})
+    notes.append(
+        f"  portable replay transfer={portable.get('mean_functional_transfer_gain', 0.0):.3f}, "
+        f"universal replay transfer={universal.get('mean_functional_transfer_gain', 0.0):.3f}"
+    )
+
     _write_csv(rows, output_dir / "transfer_validation.csv")
 
-    passed = len(surviving_findings) >= 1
+    replay_support = max(
+        portable.get("mean_functional_transfer_gain", 0.0),
+        universal.get("mean_functional_transfer_gain", 0.0),
+    )
+    passed = len(surviving_findings) >= 1 and replay_support >= 0.0
     notes.append(f"  Surviving findings: {surviving_findings}")
 
     return StageResult(
         stage="Stage 10: Transfer",
         passed=passed,
-        details={"surviving_findings": surviving_findings},
+        details={
+            "surviving_findings": surviving_findings,
+            "portable_replay_support": replay_support,
+            "portable_replay_summary": replay.get("summary", {}),
+        },
         notes=notes,
     )
 
