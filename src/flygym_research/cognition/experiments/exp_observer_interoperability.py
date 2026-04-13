@@ -23,6 +23,8 @@ from ..interfaces import AscendingSummary, BrainObservation, RawBodyFeedback, St
 from ..metrics.interoperability_metrics import extract_state_matrix
 from .exp_sleep_trace_compressor import collect_trace_bank
 
+# Heading is already a compact angular scalar, so we perturb it more gently
+# than Cartesian features to avoid dominating the observer-state corruption.
 HEADING_NOISE_SCALE = 0.25
 
 

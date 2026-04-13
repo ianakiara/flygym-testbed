@@ -28,6 +28,8 @@ from flygym_research.cognition.experiments.exp_observer_interoperability import 
     _compute_translated_agreement,
     _perturb_transitions_bias,
     _perturb_transitions_noise,
+    _perturb_transitions_partial,
+    _perturb_transitions_scaling,
 )
 from flygym_research.cognition.experiments.exp_scale_law import _summarize_stabilities
 from flygym_research.cognition.interfaces import (
@@ -537,6 +539,22 @@ class TestObserverInteropExperiment:
         assert not np.allclose(
             extract_state_matrix(transitions),
             extract_state_matrix(perturbed),
+        )
+        raw = _compute_raw_agreement(transitions, perturbed)
+        assert raw["raw_mse"] > 0.0
+
+    def test_scaling_perturbation_changes_measured_state(self):
+        transitions = _make_transitions(10)
+        perturbed = _perturb_transitions_scaling(transitions, factor=1.8)
+        raw = _compute_raw_agreement(transitions, perturbed)
+        assert raw["raw_mse"] > 0.0
+
+    def test_partial_observation_changes_measured_state(self):
+        transitions = _make_transitions(10)
+        perturbed = _perturb_transitions_partial(
+            transitions,
+            drop_fraction=0.5,
+            rng=np.random.default_rng(0),
         )
         raw = _compute_raw_agreement(transitions, perturbed)
         assert raw["raw_mse"] > 0.0
