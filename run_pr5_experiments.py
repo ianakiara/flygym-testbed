@@ -195,7 +195,7 @@ def classify_branches(all_results):
     # EXP 2: BackboneShared
     exp2 = all_results.get("exp2", {}).get("pass_criteria", {})
     auc = exp2.get("backbone_shared_auc", 0)
-    beats_omega = exp2.get("beats_omega_by_008", False)
+    beats_omega = exp2.get("beats_omega_by_0.08", False)
     if auc >= 0.90 and beats_omega:
         verdicts["backbone_shared"] = "PROMOTED"
     elif auc >= 0.80:
