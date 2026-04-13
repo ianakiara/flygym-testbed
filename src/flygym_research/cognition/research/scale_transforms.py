@@ -158,6 +158,42 @@ def compression_proxy(
     return [transitions[i] for i in indices]
 
 
+def histogram_fold(
+    transitions: list[StepTransition],
+    bins: int = 4,
+) -> list[StepTransition]:
+    """Quantize action/feature observations into coarse bins."""
+    if bins < 2 or not transitions:
+        return transitions
+    result = []
+    for transition in transitions:
+        obs = transition.observation
+        feats = {
+            key: float(np.round(value * bins) / bins)
+            for key, value in obs.summary.features.items()
+        }
+        new_summary = type(obs.summary)(
+            features=feats,
+            active_channels=obs.summary.active_channels,
+            disabled_channels=obs.summary.disabled_channels,
+        )
+        new_obs = type(obs)(
+            raw_body=obs.raw_body,
+            summary=new_summary,
+            world=obs.world,
+            history=obs.history,
+        )
+        result.append(StepTransition(
+            observation=new_obs,
+            action=transition.action,
+            reward=transition.reward,
+            terminated=transition.terminated,
+            truncated=transition.truncated,
+            info={**transition.info, "histogram_fold": bins},
+        ))
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Scale transform registry
 # ---------------------------------------------------------------------------
@@ -173,6 +209,10 @@ SCALE_TRANSFORMS: dict[str, object] = {
     "temporal_agg_3": lambda t: temporal_aggregate(t, 3),
     "window_resize_50": lambda t: window_resize(t, 50),
     "compress_50": lambda t: compression_proxy(t, 0.5),
+    "downsample_5": lambda t: downsample(t, 5),
+    "coarse_8": lambda t: coarse_grain(t, 8),
+    "compress_25": lambda t: compression_proxy(t, 0.25),
+    "histogram_fold_4": lambda t: histogram_fold(t, 4),
 }
 
 
@@ -214,13 +254,14 @@ def compute_fake_metrics(transitions: list[StepTransition]) -> dict[str, float]:
         dtype=np.float64,
     )
     rewards = np.array([t.reward for t in transitions], dtype=np.float64)
+    step_weights = np.arange(1, n + 1, dtype=np.float64)
 
     # 1. Raw action count — directly proportional to episode length
     raw_action_count = float(n)
 
     # 2. Stepwise noise magnitude — sum of absolute action changes
     if n > 1:
-        stepwise_noise = float(np.sum(np.abs(np.diff(actions))))
+        stepwise_noise = float(np.sum(np.abs(np.diff(actions))) * max(n / 8.0, 1.0))
     else:
         stepwise_noise = 0.0
 
@@ -228,7 +269,7 @@ def compute_fake_metrics(transitions: list[StepTransition]) -> dict[str, float]:
     chunk_count = float(n // 3)
 
     # 4. Unnormalized residual tally — sum of squared rewards
-    unnorm_residual = float(np.sum(rewards ** 2))
+    unnorm_residual = float(np.sum((rewards ** 2) * step_weights))
 
     # 5. Local oscillation count — number of sign changes in action diff
     if n > 2:
@@ -239,11 +280,15 @@ def compute_fake_metrics(transitions: list[StepTransition]) -> dict[str, float]:
         oscillation_count = 0.0
 
     # 6. Resolution-specific support count — unique action values
-    resolution_support = float(len(np.unique(np.round(actions, 2))))
+    resolution_support = float(len(np.unique(np.round(actions * max(n / 10.0, 1.0), 1))))
 
     # 7. Small-window variance — variance computed on first 5 steps only
     small_window = actions[:min(5, n)]
-    small_window_var = float(np.var(small_window)) if len(small_window) > 1 else 0.0
+    small_window_var = (
+        float(np.var(small_window) * max(n / 5.0, 1.0))
+        if len(small_window) > 1
+        else 0.0
+    )
 
     return {
         "raw_action_count": raw_action_count,

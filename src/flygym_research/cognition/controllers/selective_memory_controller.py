@@ -13,6 +13,8 @@ class SelectiveMemoryController(BrainInterface):
     slot_dim: int = 8
     gate_decay: float = 0.9
     distractor_suppression: float = 0.35
+    temperature_floor: float = 0.35
+    temperature_scale: float = 1.5
     _slots: np.ndarray = field(init=False)
     _strengths: np.ndarray = field(init=False)
     _last_query: np.ndarray = field(init=False)
@@ -47,12 +49,15 @@ class SelectiveMemoryController(BrainInterface):
         context_key = float(observation.world.observables.get("context_key", 0.0))
         recall_bias = np.tanh(read_vec[:2]) if read_vec.size >= 2 else np.zeros(2)
         distractor_flag = float(observation.world.info.get("distractor_active", False))
-        focus = 1.0 - self.distractor_suppression * distractor_flag
+        query_mode = 1.0 if context_key < 0.0 else 0.0
+        focus = 1.0 - self.distractor_suppression * distractor_flag + 0.25 * query_mode
+        focus = float(np.clip(focus, 0.0, 1.25))
         blended = focus * target_vector + (1.0 - focus) * (cue_vector + recall_bias)
         if np.linalg.norm(cue_vector) > 1e-6:
-            blended = 0.6 * blended + 0.4 * cue_vector
-        move_intent = float(np.clip(blended[0] + 0.15 * recall_bias[0], -1.0, 1.0))
-        turn_intent = float(np.clip(blended[1] + 0.15 * recall_bias[1] + 0.1 * context_key, -1.0, 1.0))
+            blend_weight = 0.2 if distractor_flag else 0.45
+            blended = (1.0 - blend_weight) * blended + blend_weight * cue_vector
+        move_intent = float(np.clip(blended[0] + 0.35 * recall_bias[0], -1.0, 1.0))
+        turn_intent = float(np.clip(blended[1] + 0.35 * recall_bias[1] + 0.1 * context_key, -1.0, 1.0))
         stability = float(observation.summary.features.get("stability", 0.0))
         speed_mod = float(np.clip(0.25 + 0.3 * np.max(self._strengths), -1.0, 1.0))
         return DescendingCommand(
@@ -83,18 +88,31 @@ class SelectiveMemoryController(BrainInterface):
                 cue_vector[1] if cue_vector.size > 1 else 0.0,
                 float(features.get("stability", 0.0)),
                 float(features.get("phase", 0.0)),
-                context_key,
+                np.sign(context_key) * min(abs(context_key), 3.0),
                 visited,
             ],
             dtype=np.float64,
         )
+        if context_key < 0.0:
+            base[2] = abs(context_key)
+            base[3] = 1.0
         self._last_query = base
         return base
 
     def _read(self, query: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         if self._strengths.max() <= 1e-8:
             return np.zeros(self.slot_dim, dtype=np.float64), np.zeros(self.memory_slots, dtype=np.float64)
-        logits = self._slots @ query
+        query_norm = float(np.linalg.norm(query))
+        slot_norms = np.linalg.norm(self._slots, axis=1)
+        denom = np.maximum(slot_norms * max(query_norm, 1e-8), 1e-8)
+        logits = (self._slots @ query) / denom
+        temperature = max(
+            self.temperature_floor,
+            1.0 - self.temperature_scale * float(np.std(self._strengths)),
+        )
+        if query[6] < 0.0:
+            temperature *= 0.6
+        logits = logits / max(temperature, 1e-6)
         logits = logits - logits.max()
         weights = np.exp(logits) * np.maximum(self._strengths, 1e-6)
         total = float(weights.sum())
@@ -108,8 +126,11 @@ class SelectiveMemoryController(BrainInterface):
             observation.world.observables.get("cue_vector", np.zeros(2)), dtype=np.float64
         )
         context_key = float(observation.world.observables.get("context_key", 0.0))
+        distractor_flag = float(observation.world.info.get("distractor_active", False))
         cue_strength = float(np.linalg.norm(cue_vector)) + abs(context_key)
-        write_gate = max(cue_strength, 0.2)
+        write_gate = max(cue_strength, 0.1)
+        if distractor_flag and abs(context_key) < 0.5 and cue_strength < 0.75:
+            write_gate *= 0.2
         slot_index = self._select_slot(attention)
         self._slots[slot_index] = self.gate_decay * self._slots[slot_index] + (1.0 - self.gate_decay) * query
         self._strengths *= self.gate_decay

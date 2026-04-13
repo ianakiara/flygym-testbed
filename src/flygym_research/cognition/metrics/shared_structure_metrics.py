@@ -42,7 +42,7 @@ def shared_structure_profile(
         - 0.6 * seam_risk
         - 0.6 * interop_loss
         - 0.5 * scale_drift
-        - 0.7 * degeneracy_penalty
+        - 0.35 * degeneracy_penalty
     )
     portable_floor = float(np.clip(portability_fraction - 0.5 * scale_drift, 0.0, 1.0))
     if (

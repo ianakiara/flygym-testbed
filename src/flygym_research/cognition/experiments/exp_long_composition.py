@@ -116,6 +116,28 @@ def _compute_return_degradation(rewards: list[float]) -> float:
     return first_half_mean - second_half_mean
 
 
+def _composition_utility(
+    rewards: list[float],
+    seam_idx: int,
+    seam_defect: float,
+) -> float:
+    """Seam-aware utility that keeps long-horizon ordering from being diluted."""
+    if not rewards:
+        return 0.0
+    seam_idx = int(np.clip(seam_idx, 0, len(rewards)))
+    pre = rewards[:seam_idx]
+    post = rewards[seam_idx:]
+    pre_mean = float(np.mean(pre)) if pre else 0.0
+    post_mean = float(np.mean(post)) if post else 0.0
+    degradation = _compute_return_degradation(rewards)
+    return float(
+        0.35 * pre_mean
+        + 0.65 * post_mean
+        - 0.5 * degradation
+        - 0.75 * seam_defect
+    )
+
+
 def _paired_win_rate(trials: list[dict], better: str, worse: str) -> float:
     """Fraction of paired trials where ``better`` strictly beats ``worse``."""
     wins = 0
@@ -264,7 +286,7 @@ def run_experiment(
 
                 # Compute failure indicators
                 rewards = [t.reward for t in composed]
-                return_val = float(np.sum(rewards))
+                raw_return = float(np.sum(rewards))
                 n_steps = len(composed)
 
                 # Delayed failure: did performance degrade in second half?
@@ -278,12 +300,14 @@ def run_experiment(
                 # Failure flag: significant degradation after seam
                 is_failure = 1.0 if degradation > 5.0 or post_seam_return < -10.0 else 0.0
 
+                composition_return = _composition_utility(rewards, seam_idx, seam_defect)
                 trial = {
                     "family": family_name,
                     "strategy": strategy_name,
                     "ep_a": ep_a.episode_id,
                     "ep_b": ep_b.episode_id,
-                    "return": return_val,
+                    "return": composition_return,
+                    "raw_return": raw_return,
                     "seam_defect": seam_defect,
                     "return_degradation": degradation,
                     "post_seam_return": post_seam_return,

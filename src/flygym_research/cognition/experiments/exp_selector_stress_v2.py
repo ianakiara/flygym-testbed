@@ -105,7 +105,11 @@ def _survival_selector(
         and item["degeneracy_penalty"] <= degeneracy_threshold
     ]
     for s in survivors:
-        s["survival_score"] = s["backbone_shared"] + 0.5 * s["portability_fraction"]
+        s["survival_score"] = (
+            0.55 * s["backbone_shared"]
+            + 0.25 * s.get("safe_compression", 0.0)
+            + 0.20 * s["portability_fraction"]
+        )
     return sorted(survivors, key=lambda x: -x.get("survival_score", 0.0))[:top_k]
 
 
@@ -119,15 +123,26 @@ def _basin_collapse_selector(
     """Basin size + collapse distance selector."""
     scored = []
     for item in pool:
-        basin_size = float(np.clip(
-            item["backbone_shared"] + 0.5 * item["portability_fraction"], 0.0, 2.0,
-        ))
+        seam_margin = max(0.0, seam_threshold - item["seam_risk"])
+        interop_margin = max(0.0, 0.30 - item["interop_loss"])
+        drift_margin = max(0.0, 0.25 - item["scale_drift"])
+        basin_size = float(
+            seam_margin + interop_margin + drift_margin + 0.5 * item["portability_fraction"]
+        )
         collapse_distance = float(np.clip(
-            1.0 - item["seam_risk"] - item["scale_drift"] - item["degeneracy_penalty"],
+            1.2
+            - 0.9 * item["seam_risk"]
+            - 0.7 * item["scale_drift"]
+            - 0.9 * item["degeneracy_penalty"]
+            - 0.5 * item["interop_loss"],
             0.0, 1.0,
         ))
-        item["basin_score"] = basin_size + lambda_collapse * collapse_distance
-        if item["seam_risk"] <= seam_threshold:
+        item["basin_score"] = (
+            basin_size
+            + lambda_collapse * collapse_distance
+            + 0.2 * item.get("safe_compression", 0.0)
+        )
+        if item["seam_risk"] <= seam_threshold and item["degeneracy_penalty"] <= 0.3:
             scored.append(item)
     return sorted(scored, key=lambda x: -x.get("basin_score", 0.0))[:top_k]
 

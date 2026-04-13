@@ -91,6 +91,36 @@ def _compute_distractor_overwrite_rate(
     return float(np.mean([1.0 if t.reward < 0 else 0.0 for t in late]))
 
 
+def _run_scalar_decay_sweep(
+    *,
+    config: EnvConfig,
+    episode_steps: int,
+    seeds: list[int],
+) -> dict[str, dict[str, float]]:
+    """Validate scalar-memory decay on the selective task families."""
+    sweep_results: dict[str, dict[str, float]] = {}
+    for decay in (0.5, 0.7, 0.85, 0.95, 0.99):
+        decay_key = f"{decay:.2f}"
+        returns = []
+        overwrite_rates = []
+        for task_name in ("selective_recall", "sparse_relevance"):
+            for seed in seeds:
+                task = create_task(task_name, config=config)
+                controller = _ScalarMemoryController(decay=decay)
+                env = _TaskEnvWrapper(task, config=config)
+                transitions = run_episode(env, controller, seed=seed, max_steps=episode_steps)
+                metrics = summarize_metrics(transitions)
+                returns.append(float(metrics.get("return", 0.0)))
+                ow = _compute_distractor_overwrite_rate(transitions, task_name)
+                if ow >= 0.0:
+                    overwrite_rates.append(ow)
+        sweep_results[decay_key] = {
+            "mean_return": float(np.mean(returns)) if returns else 0.0,
+            "mean_overwrite_rate": float(np.mean(overwrite_rates)) if overwrite_rates else 0.0,
+        }
+    return sweep_results
+
+
 @dataclass(slots=True)
 class _ScalarMemoryController(BrainInterface):
     """Single-scalar memory baseline for selective memory comparisons."""
@@ -111,14 +141,12 @@ class _ScalarMemoryController(BrainInterface):
             observation.world.observables.get("target_vector", np.zeros(2)),
             dtype=np.float64,
         )
-        context_key = float(observation.world.observables.get("context_key", 0.0))
         stability = float(observation.summary.features.get("stability", 0.0))
 
         cue_signal = float(cue_vector[0]) if cue_vector.size > 0 else 0.0
-        contextual_signal = cue_signal + 0.25 * np.sign(context_key)
         self.memory_trace = (
             self.decay * self.memory_trace
-            + (1.0 - self.decay) * contextual_signal
+            + (1.0 - self.decay) * cue_signal
         )
 
         move_target = float(target_vector[0]) if target_vector.size > 0 else 0.0
@@ -126,7 +154,7 @@ class _ScalarMemoryController(BrainInterface):
         if abs(move_target) < 1e-6:
             move_target = self.memory_trace
         if abs(turn_target) < 1e-6:
-            turn_target = 0.5 * self.memory_trace + 0.1 * context_key
+            turn_target = 0.25 * self.memory_trace
 
         return DescendingCommand(
             move_intent=float(np.clip(move_target, -1.0, 1.0)),
@@ -362,6 +390,17 @@ def run_experiment(
             "cv_across_seeds": float(np.std(seed_means) / (abs(np.mean(seed_means)) + 1e-8)) if seed_means else 0.0,
         }
 
+    scalar_decay_sweep = _run_scalar_decay_sweep(
+        config=config,
+        episode_steps=episode_steps,
+        seeds=seeds[: min(len(seeds), 3)],
+    )
+    best_scalar_decay = max(
+        scalar_decay_sweep.items(),
+        key=lambda item: (item[1]["mean_return"], -item[1]["mean_overwrite_rate"]),
+        default=("0.85", {"mean_return": 0.0, "mean_overwrite_rate": 0.0}),
+    )
+
     payload = {
         "controller_summary": controller_summary,
         "task_controller_matrix": task_controller_matrix,
@@ -380,12 +419,14 @@ def run_experiment(
         "lag_profile": lag_profile,
         "failure_cases": failure_cases[:30],
         "seed_stability": seed_stability,
+        "scalar_decay_sweep": scalar_decay_sweep,
         "config": {
             "episode_steps": episode_steps,
             "n_seeds": n_seeds,
             "n_tasks": len(task_names),
             "n_controllers": len(controllers),
             "total_runs": sum(len(v) for v in all_results.values()),
+            "best_scalar_decay": best_scalar_decay[0],
         },
     }
 
