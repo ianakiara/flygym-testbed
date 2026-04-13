@@ -313,9 +313,11 @@ def run_experiment(
     ) if universal_rows else False
 
     # False portable precision
+    # False portable precision
+    original_portable_count = sum(1 for c in per_candidate if c["original_tier"] == "portable")
     fp_precision = (
-        len(false_portables) / max(len(portable_rows), 1)
-    ) if portable_rows else 0.0
+        len(false_portables) / max(original_portable_count, 1)
+    ) if original_portable_count > 0 else 0.0
 
     # Transfer heatmap
     transfer_heatmap: dict[str, dict[str, float]] = {}
