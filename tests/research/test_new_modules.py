@@ -499,9 +499,11 @@ class TestSelectiveMemoryController:
         )
         neutral_query = ctrl._build_query(neutral_obs)
         ctrl._write(neutral_query, neutral_obs, np.zeros(ctrl.memory_slots, dtype=np.float64))
+        expected_spare_slot = ctrl.gate_decay * spare_slot_before + (1.0 - ctrl.gate_decay) * neutral_query
 
         assert np.allclose(ctrl._slots[0], cue_slot_before)
-        assert not np.allclose(ctrl._slots[3], spare_slot_before)
+        assert np.allclose(ctrl._slots[3], expected_spare_slot)
+        assert ctrl._strengths[3] == pytest.approx(1.0)
 
 
 # ─── PlannerController ────────────────────────────────────────────────
