@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 os.environ.setdefault("MUJOCO_GL", "osmesa")
@@ -275,6 +276,23 @@ class TestExpSelectorStressV2:
     def test_collapse_distances(self, results):
         assert "collapse_distances" in results
 
+    def test_collapse_distance_formula_matches_selector(self):
+        from flygym_research.cognition.experiments.exp_selector_stress_v2 import (
+            _collapse_distance,
+        )
+
+        item = {
+            "seam_risk": 0.2,
+            "scale_drift": 0.1,
+            "degeneracy_penalty": 0.3,
+            "interop_loss": 0.4,
+        }
+        expected = float(
+            np.clip(1.2 - 0.9 * 0.2 - 0.7 * 0.1 - 0.9 * 0.3 - 0.5 * 0.4, 0.0, 1.0)
+        )
+
+        assert _collapse_distance(item) == pytest.approx(expected)
+
 
 # ---------------------------------------------------------------------------
 # EXP 7: Observer-Family Benchmark v2
@@ -407,6 +425,15 @@ class TestPr5FormulaFixes:
         assert _compute_return_degradation(short) == pytest.approx(
             _compute_return_degradation(long),
         )
+
+    def test_long_composition_failure_score_is_reward_only(self):
+        from flygym_research.cognition.experiments.exp_long_composition import (
+            _reward_only_failure_score,
+        )
+
+        rewards = [1.0] * 5 + [0.0] * 5
+        score = _reward_only_failure_score(rewards, 5)
+        assert score == pytest.approx(0.15)
 
     def test_portable_replay_degradation_slope_uses_mismatch_severity(self):
         from flygym_research.cognition.experiments.exp_portable_replay_v2 import (

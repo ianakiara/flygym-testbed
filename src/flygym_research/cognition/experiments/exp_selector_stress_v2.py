@@ -24,6 +24,12 @@ from ..research.long_horizon_runner import collect_long_horizon
 from ..sleep import backbone_shared_score, safe_compression_score
 from ..sleep.trace_schema import SleepCandidate, TraceEpisode
 
+_COLLAPSE_BASE = 1.2
+_SEAM_RISK_WEIGHT = 0.9
+_SCALE_DRIFT_WEIGHT = 0.7
+_DEGENERACY_WEIGHT = 0.9
+_INTEROP_LOSS_WEIGHT = 0.5
+
 
 # ---------------------------------------------------------------------------
 # Candidate pool with rich scoring
@@ -105,8 +111,23 @@ def _survival_selector(
         and item["degeneracy_penalty"] <= degeneracy_threshold
     ]
     for s in survivors:
-        s["survival_score"] = s["backbone_shared"] + 0.5 * s["portability_fraction"]
+        s["survival_score"] = (
+            0.55 * s["backbone_shared"]
+            + 0.25 * s.get("safe_compression", 0.0)
+            + 0.20 * s["portability_fraction"]
+        )
     return sorted(survivors, key=lambda x: -x.get("survival_score", 0.0))[:top_k]
+
+
+def _collapse_distance(item: dict) -> float:
+    return float(np.clip(
+        _COLLAPSE_BASE
+        - _SEAM_RISK_WEIGHT * item["seam_risk"]
+        - _SCALE_DRIFT_WEIGHT * item["scale_drift"]
+        - _DEGENERACY_WEIGHT * item["degeneracy_penalty"]
+        - _INTEROP_LOSS_WEIGHT * item["interop_loss"],
+        0.0, 1.0,
+    ))
 
 
 def _basin_collapse_selector(
@@ -119,15 +140,19 @@ def _basin_collapse_selector(
     """Basin size + collapse distance selector."""
     scored = []
     for item in pool:
-        basin_size = float(np.clip(
-            item["backbone_shared"] + 0.5 * item["portability_fraction"], 0.0, 2.0,
-        ))
-        collapse_distance = float(np.clip(
-            1.0 - item["seam_risk"] - item["scale_drift"] - item["degeneracy_penalty"],
-            0.0, 1.0,
-        ))
-        item["basin_score"] = basin_size + lambda_collapse * collapse_distance
-        if item["seam_risk"] <= seam_threshold:
+        seam_margin = max(0.0, seam_threshold - item["seam_risk"])
+        interop_margin = max(0.0, 0.30 - item["interop_loss"])
+        drift_margin = max(0.0, 0.25 - item["scale_drift"])
+        basin_size = float(
+            seam_margin + interop_margin + drift_margin + 0.5 * item["portability_fraction"]
+        )
+        collapse_distance = _collapse_distance(item)
+        item["basin_score"] = (
+            basin_size
+            + lambda_collapse * collapse_distance
+            + 0.2 * item.get("safe_compression", 0.0)
+        )
+        if item["seam_risk"] <= seam_threshold and item["degeneracy_penalty"] <= 0.3:
             scored.append(item)
     return sorted(scored, key=lambda x: -x.get("basin_score", 0.0))[:top_k]
 
@@ -259,10 +284,7 @@ def run_experiment(
         "collapse_distances": [
             {
                 "candidate_id": item["candidate_id"],
-                "collapse_distance": float(np.clip(
-                    1.0 - item["seam_risk"] - item["scale_drift"] - item["degeneracy_penalty"],
-                    0.0, 1.0,
-                )),
+                "collapse_distance": _collapse_distance(item),
                 "is_dangerous": _is_dangerous(item),
                 "family": family_labels.get(item["candidate_id"], "unknown"),
             }

@@ -51,6 +51,18 @@ def _resolve_portability_fraction(
     return portability_fraction
 
 
+def _normalize_degeneracy_penalty(
+    q_red: float,
+    mean_success: float,
+    degeneracy_ratio: float,
+    information_loss: float,
+) -> float:
+    success_floor = max(mean_success, 0.3)
+    raw_penalty = float(np.clip(q_red * (1.0 - success_floor), 0.0, 1.0))
+    dispersion = float(np.std([degeneracy_ratio, information_loss, q_red]))
+    return float(np.clip(raw_penalty + 0.2 * dispersion, 0.0, 1.0))
+
+
 def backbone_shared_score(
     candidate: SleepCandidate,
     episodes: list[TraceEpisode],
@@ -70,6 +82,8 @@ def backbone_shared_score(
             1.0,
         )
     )
+    degeneracy_ratio = float(degeneracy.get("degeneracy_ratio", 0.0))
+    information_loss = float(degeneracy.get("information_loss", 0.0))
     seam_scores = [
         seam_critical_exception_score(
             episode.transitions,
@@ -123,7 +137,12 @@ def backbone_shared_score(
             1.0,
         )
     )
-    degeneracy_penalty = float(np.clip(q_red * (1.0 - mean_success), 0.0, 1.0))
+    degeneracy_penalty = _normalize_degeneracy_penalty(
+        q_red,
+        mean_success,
+        degeneracy_ratio,
+        information_loss,
+    )
 
     # Honor explicit score_components overrides for synthetic/adversarial
     # candidates whose transitions are shared with their source candidate.
@@ -136,6 +155,12 @@ def backbone_shared_score(
         scale_drift = float(candidate.score_components["scale_drift"])
     if "degeneracy_penalty" in candidate.score_components:
         degeneracy_penalty = float(candidate.score_components["degeneracy_penalty"])
+    if "functional_transfer_gain" in candidate.score_components:
+        functional_transfer_gain = float(candidate.score_components["functional_transfer_gain"])
+    if "portability_fraction" in candidate.score_components:
+        portability_fraction = float(
+            np.clip(candidate.score_components["portability_fraction"], 0.0, 1.0)
+        )
 
     profile = shared_structure_profile(
         redundancy=redundancy,
@@ -184,7 +209,7 @@ def safe_compression_score(
         - beta * result["seam_risk"]
         - gamma * result["interop_loss"]
         - delta * result["scale_drift"]
-        - 0.7 * result["degeneracy_penalty"]
+        - 0.4 * result["degeneracy_penalty"]
     )
     result["safe_compression_score"] = weighted_score
     return result

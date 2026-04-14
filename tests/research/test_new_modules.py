@@ -432,6 +432,81 @@ class TestSelectiveMemoryController:
         assert state["step_count"] == 1.0
         assert state["active_slots"] >= 1.0
 
+    @pytest.mark.parametrize(
+        ("context_key", "expected_slot"),
+        [
+            (0.0, None),
+            (0.5, None),
+            (1.0, 0),
+            (1.5, None),
+            (2.0, 1),
+            (3.0, 2),
+            (3.5, None),
+        ],
+    )
+    def test_cue_slot_ids_map_consistently(self, context_key, expected_slot):
+        ctrl = SelectiveMemoryController()
+        assert ctrl._cue_slot_index(context_key) == expected_slot
+
+    def test_neutral_writes_do_not_corrupt_cue_slots(self):
+        env = FlyAvatarEnv(body=BodylessBodyLayer())
+        ctrl = SelectiveMemoryController()
+        ctrl.reset(seed=0)
+        obs = env.reset(seed=0)
+
+        cue_obs = BrainObservation(
+            raw_body=obs.raw_body,
+            summary=obs.summary,
+            world=WorldState(
+                mode=obs.world.mode,
+                step_count=obs.world.step_count,
+                reward=obs.world.reward,
+                terminated=obs.world.terminated,
+                truncated=obs.world.truncated,
+                observables={
+                    **obs.world.observables,
+                    "context_key": 1.0,
+                    "cue_vector": np.array([0.8, -0.6], dtype=np.float64),
+                },
+                info=dict(obs.world.info),
+            ),
+            history=obs.history,
+        )
+        cue_query = ctrl._build_query(cue_obs)
+        ctrl._write(cue_query, cue_obs, np.zeros(ctrl.memory_slots, dtype=np.float64))
+        cue_slot_before = ctrl._slots[0].copy()
+
+        ctrl._strengths[:] = 1.0
+        spare_slot_before = ctrl._slots[3].copy()
+
+        neutral_obs = BrainObservation(
+            raw_body=obs.raw_body,
+            summary=obs.summary,
+            world=WorldState(
+                mode=obs.world.mode,
+                step_count=obs.world.step_count,
+                reward=obs.world.reward,
+                terminated=obs.world.terminated,
+                truncated=obs.world.truncated,
+                observables={
+                    **obs.world.observables,
+                    "context_key": 0.0,
+                    "cue_vector": np.array([0.1, 0.2], dtype=np.float64),
+                },
+                info={**obs.world.info, "distractor_active": False},
+            ),
+            history=obs.history,
+        )
+        neutral_query = ctrl._build_query(neutral_obs)
+        ctrl._write(neutral_query, neutral_obs, np.zeros(ctrl.memory_slots, dtype=np.float64))
+        # Mirror the leaky-write update here so the test proves the spare slot,
+        # rather than any cue slot, received the neutral write.
+        expected_spare_slot = ctrl.gate_decay * spare_slot_before + (1.0 - ctrl.gate_decay) * neutral_query
+
+        assert np.allclose(ctrl._slots[0], cue_slot_before)
+        assert np.allclose(ctrl._slots[3], expected_spare_slot)
+        assert ctrl._strengths[3] == pytest.approx(1.0)
+
 
 # ─── PlannerController ────────────────────────────────────────────────
 

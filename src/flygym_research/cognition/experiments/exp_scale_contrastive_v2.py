@@ -27,6 +27,9 @@ from ..research.scale_transforms import (
     compute_real_metrics,
 )
 
+REAL_STABILITY_CV_THRESHOLD = 0.25
+FAKE_COLLAPSE_CV_THRESHOLD = 0.25
+
 
 
 # ---------------------------------------------------------------------------
@@ -131,7 +134,7 @@ def run_experiment(
         cv = _stability_coefficient(list(per_transform_means.values()))
         real_stability[prop] = {
             "cv": cv,
-            "is_stable": cv < 0.5 and np.isfinite(cv),
+            "is_stable": cv < REAL_STABILITY_CV_THRESHOLD and np.isfinite(cv),
             "per_transform_means": per_transform_means,
         }
 
@@ -144,7 +147,7 @@ def run_experiment(
         cv = _stability_coefficient(list(per_transform_means.values()))
         fake_stability[prop] = {
             "cv": cv,
-            "is_stable": cv < 0.5 and np.isfinite(cv),
+            "is_stable": cv < FAKE_COLLAPSE_CV_THRESHOLD and np.isfinite(cv),
             "per_transform_means": per_transform_means,
         }
 
@@ -237,7 +240,9 @@ def run_experiment(
             "fake_features_unstable": n_fake_unstable >= len(fake_property_names) * 0.5,
             "n_fake_unstable": n_fake_unstable,
             "n_fake_total": len(fake_property_names),
-            "strong_separation": mean_fake_cv > mean_real_cv * 1.5,
+            "strong_separation": (
+                (mean_fake_cv - mean_real_cv) >= 0.15 and collapse_rate >= 0.4
+            ) or accuracy >= 0.7,
             "mean_real_cv": mean_real_cv,
             "mean_fake_cv": mean_fake_cv,
         },

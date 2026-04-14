@@ -210,13 +210,98 @@ def self_world_separation(transitions: list[StepTransition]) -> dict[str, float]
 
 
 def seam_fragility(transitions: list[StepTransition]) -> dict[str, float]:
-    """Mean descending-to-body target delta; larger values indicate more aggressive mapping."""
-    mean_delta = []
+    """Boundary-sensitive seam score from target, action, and state discontinuities."""
+    if not transitions:
+        return {"seam_fragility": 0.0}
+
+    components = []
+    body_deltas = []
     for transition in transitions:
         body_log = transition.info.get("body_log", {})
         if isinstance(body_log, dict) and "mean_target_delta" in body_log:
-            mean_delta.append(float(body_log["mean_target_delta"]))
-    return {"seam_fragility": float(np.mean(mean_delta)) if mean_delta else 0.0}
+            body_deltas.append(float(body_log["mean_target_delta"]))
+
+    if body_deltas:
+        components.append(float(np.mean(body_deltas)))
+
+    boundary_scores = []
+    for prev, curr in zip(transitions[:-1], transitions[1:]):
+        seam_marked = (
+            bool(prev.info.get("seam_corruption_applied"))
+            or bool(curr.info.get("seam_corruption_applied"))
+            or bool(prev.info.get("delayed_target_mismatch"))
+            or bool(curr.info.get("delayed_target_mismatch"))
+            or bool(prev.info.get("seam_boundary_index"))
+            or bool(curr.info.get("seam_boundary_index"))
+            or bool(prev.observation.world.info.get("hidden_mode_switch"))
+            or bool(curr.observation.world.info.get("hidden_mode_switch"))
+            or bool(prev.observation.world.info.get("delayed_target_mismatch"))
+            or bool(curr.observation.world.info.get("delayed_target_mismatch"))
+            or prev.observation.world.mode != curr.observation.world.mode
+        )
+        if not seam_marked:
+            continue
+
+        prev_obs = prev.observation
+        curr_obs = curr.observation
+
+        prev_target = np.asarray(
+            prev_obs.world.observables.get("target_vector", np.zeros(2)),
+            dtype=np.float64,
+        )
+        curr_target = np.asarray(
+            curr_obs.world.observables.get("target_vector", np.zeros(2)),
+            dtype=np.float64,
+        )
+        target_delta = float(np.linalg.norm(curr_target - prev_target))
+
+        prev_pos = np.asarray(prev_obs.raw_body.body_positions, dtype=np.float64)
+        curr_pos = np.asarray(curr_obs.raw_body.body_positions, dtype=np.float64)
+        body_delta = float(np.linalg.norm(curr_pos - prev_pos) / max(prev_pos.size, 1))
+
+        prev_action = np.array(
+            [
+                float(getattr(prev.action, "move_intent", 0.0)),
+                float(getattr(prev.action, "turn_intent", 0.0)),
+                float(getattr(prev.action, "speed_modulation", 0.0)),
+            ],
+            dtype=np.float64,
+        )
+        curr_action = np.array(
+            [
+                float(getattr(curr.action, "move_intent", 0.0)),
+                float(getattr(curr.action, "turn_intent", 0.0)),
+                float(getattr(curr.action, "speed_modulation", 0.0)),
+            ],
+            dtype=np.float64,
+        )
+        action_delta = float(np.linalg.norm(curr_action - prev_action))
+
+        prev_reward = float(prev.reward)
+        curr_reward = float(curr.reward)
+        reward_delta = abs(curr_reward - prev_reward)
+
+        boundary_weight = 1.0
+        if curr.info.get("seam_corruption_applied") or prev.info.get("seam_corruption_applied"):
+            boundary_weight += float(curr.info.get("seam_corruption_magnitude", 0.0))
+        if curr.info.get("delayed_target_mismatch") or prev.info.get("delayed_target_mismatch"):
+            boundary_weight += 0.5
+        if prev_obs.world.mode != curr_obs.world.mode:
+            boundary_weight += 0.75
+
+        boundary_scores.append(
+            boundary_weight * (
+                0.4 * target_delta
+                + 0.3 * action_delta
+                + 0.2 * body_delta
+                + 0.1 * reward_delta
+            )
+        )
+
+    if boundary_scores:
+        components.append(float(np.mean(boundary_scores)))
+
+    return {"seam_fragility": float(np.mean(components)) if components else 0.0}
 
 
 def summarize_metrics(transitions: list[StepTransition]) -> dict[str, float]:

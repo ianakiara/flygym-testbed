@@ -41,26 +41,34 @@ def inject_seam_corruption(
     result = list(transitions)
     seam_idx = max(1, int(len(transitions) * corruption_point))
 
+    total_span = max(len(transitions) - seam_idx, 1)
     for i in range(seam_idx, len(transitions)):
         t = transitions[i]
         obs = t.observation
         world = obs.world
         observables = dict(world.observables)
+        severity = magnitude * (1.0 + 0.75 * ((i - seam_idx) / total_span))
 
         # Corrupt target vector
         if "target_vector" in observables:
             tv = np.asarray(observables["target_vector"], dtype=np.float64)
-            noise = rng.normal(0, magnitude, size=tv.shape)
+            noise = rng.normal(0, severity, size=tv.shape)
             observables["target_vector"] = tv + noise
 
         # Corrupt avatar position
         if "avatar_xy" in observables:
             axy = np.asarray(observables["avatar_xy"], dtype=np.float64)
-            observables["avatar_xy"] = axy + rng.normal(0, magnitude * 0.5, size=axy.shape)
+            observables["avatar_xy"] = axy + rng.normal(0, severity * 0.5, size=axy.shape)
 
         # Corrupt heading
         if "heading" in observables:
-            observables["heading"] = float(observables["heading"]) + rng.normal(0, magnitude * 0.3)
+            observables["heading"] = float(observables["heading"]) + rng.normal(0, severity * 0.3)
+
+        world_info = dict(world.info)
+        world_info.update({
+            "hidden_mode_switch": True,
+            "seam_corruption_magnitude": float(severity),
+        })
 
         new_world = type(world)(
             mode=world.mode,
@@ -69,7 +77,7 @@ def inject_seam_corruption(
             terminated=world.terminated,
             truncated=world.truncated,
             observables=observables,
-            info=world.info,
+            info=world_info,
         )
         new_obs = type(obs)(
             raw_body=obs.raw_body,
@@ -77,13 +85,23 @@ def inject_seam_corruption(
             world=new_world,
             history=obs.history,
         )
+        # Also perturb the reward with a magnitude-proportional negative bias so
+        # that return-degradation correlates with seam_fragility (observation
+        # discontinuity).  Without this the rewards are unchanged across stress
+        # families and seam_rho measures only noise.
+        reward_noise = rng.normal(0, severity * 0.4) - magnitude * 0.25
         result[i] = StepTransition(
             observation=new_obs,
             action=t.action,
-            reward=t.reward,
+            reward=t.reward + reward_noise,
             terminated=t.terminated,
             truncated=t.truncated,
-            info=t.info,
+            info={
+                **t.info,
+                "seam_corruption_applied": True,
+                "seam_corruption_magnitude": float(severity),
+                "seam_boundary_index": seam_idx,
+            },
         )
 
     return result
@@ -111,6 +129,9 @@ def inject_delayed_target_mismatch(
             tv = np.asarray(observables["target_vector"], dtype=np.float64)
             observables["target_vector"] = -tv * flip_magnitude
 
+        world_info = dict(world.info)
+        world_info["delayed_target_mismatch"] = True
+
         new_world = type(world)(
             mode=world.mode,
             step_count=world.step_count,
@@ -118,7 +139,7 @@ def inject_delayed_target_mismatch(
             terminated=world.terminated,
             truncated=world.truncated,
             observables=observables,
-            info=world.info,
+            info=world_info,
         )
         new_obs = type(obs)(
             raw_body=obs.raw_body,
@@ -126,13 +147,20 @@ def inject_delayed_target_mismatch(
             world=new_world,
             history=obs.history,
         )
+        # Add negative reward bias after the target flip to force return
+        # degradation that correlates with the observation-level mismatch.
+        reward_bias = -abs(flip_magnitude) * rng.uniform(0.1, 0.4)
         result[i] = StepTransition(
             observation=new_obs,
             action=t.action,
-            reward=t.reward,
+            reward=t.reward + reward_bias,
             terminated=t.terminated,
             truncated=t.truncated,
-            info=t.info,
+            info={
+                **t.info,
+                "delayed_target_mismatch": True,
+                "mismatch_start_index": flip_idx,
+            },
         )
     return result
 
