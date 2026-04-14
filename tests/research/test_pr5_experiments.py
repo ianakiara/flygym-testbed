@@ -408,6 +408,15 @@ class TestPr5FormulaFixes:
             _compute_return_degradation(long),
         )
 
+    def test_long_composition_failure_score_is_reward_only(self):
+        from flygym_research.cognition.experiments.exp_long_composition import (
+            _reward_only_failure_score,
+        )
+
+        rewards = [1.0] * 5 + [0.0] * 5
+        score = _reward_only_failure_score(rewards, 5)
+        assert score == pytest.approx(0.15)
+
     def test_portable_replay_degradation_slope_uses_mismatch_severity(self):
         from flygym_research.cognition.experiments.exp_portable_replay_v2 import (
             _compute_degradation_slope,

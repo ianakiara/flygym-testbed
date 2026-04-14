@@ -290,6 +290,24 @@ def _composition_utility(
     )
 
 
+def _reward_only_failure_score(rewards: list[float], seam_idx: int) -> float:
+    """Failure severity based only on reward dynamics, independent of seam metrics."""
+    if not rewards:
+        return 0.0
+    seam_idx = int(np.clip(seam_idx, 0, len(rewards)))
+    pre = rewards[:seam_idx]
+    post = rewards[seam_idx:]
+    pre_mean = float(np.mean(pre)) if pre else 0.0
+    post_mean = float(np.mean(post)) if post else 0.0
+    degradation = _compute_return_degradation(rewards)
+    reward_only_utility = float(
+        0.35 * pre_mean
+        + 0.65 * post_mean
+        - 0.5 * degradation
+    )
+    return -reward_only_utility
+
+
 def _paired_win_rate(trials: list[dict], better: str, worse: str) -> float:
     """Fraction of paired trials where ``better`` strictly beats ``worse``."""
     wins = 0
@@ -487,12 +505,14 @@ def run_experiment(
                 trials.append(trial)
                 if family_name in _SEAM_CORR_FAMILIES:
                     seam_defects.append(seam_defect)
-                    # Use negative composition return as continuous failure score.
-                    # composition_return already contains -seam_penalty*seam_defect so
-                    # aggregating per family removes natural episode noise (per-trial
-                    # return variation is ~10x the seam signal) while preserving the
-                    # between-family signal where seam_rho ≈ 0.99.
-                    failure_flags.append((-composition_return, family_name))
+                    # Use a reward-only failure severity so seam_rho reflects an
+                    # empirical relationship with performance degradation instead of
+                    # mechanically correlating seam_defect with a score that already
+                    # contains seam penalties.
+                    failure_flags.append((
+                        _reward_only_failure_score(rewards, seam_idx),
+                        family_name,
+                    ))
 
     # ---------------------------------------------------------------------------
     # Pass criteria: paired win rates
@@ -501,10 +521,8 @@ def run_experiment(
     boundary_gt_bulk = _paired_win_rate(trials, "boundary", "bulk")
     corner_gt_boundary = _paired_win_rate(trials, "corner", "boundary")
 
-    # Seam correlation with failure — aggregate per family to cancel within-family
-    # return noise (std≈2.3) which is ~6-10x larger than the seam signal (std≈0.36).
-    # Per-family means expose the clean between-family relationship between
-    # seam fragility and composition failure.
+    # Seam correlation with failure — aggregate per family to reduce within-family
+    # reward noise while keeping the failure score independent of seam penalties.
     _fam_seam: dict[str, list[float]] = {}
     _fam_fail: dict[str, list[float]] = {}
     for sd, (ff, fn) in zip(seam_defects, failure_flags):
