@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 os.environ.setdefault("MUJOCO_GL", "osmesa")
