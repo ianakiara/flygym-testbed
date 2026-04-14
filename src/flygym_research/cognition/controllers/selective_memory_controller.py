@@ -173,9 +173,10 @@ class SelectiveMemoryController(BrainInterface):
         return attention @ self._slots, attention
 
     def _cue_slot_index(self, slot_id: float) -> int | None:
-        if not (0.5 <= slot_id <= 3.5):
+        cue_id = int(np.rint(slot_id))
+        if not np.isclose(slot_id, cue_id):
             return None
-        slot_index = min(int(slot_id + 0.5), 3) - 1
+        slot_index = cue_id - 1
         if 0 <= slot_index < min(3, self.memory_slots):
             return slot_index
         return None

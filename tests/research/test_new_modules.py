@@ -434,9 +434,17 @@ class TestSelectiveMemoryController:
 
     @pytest.mark.parametrize(
         ("context_key", "expected_slot"),
-        [(0.5, 0), (1.0, 0), (1.5, 1), (2.5, 2), (3.5, 2)],
+        [
+            (0.0, None),
+            (0.5, None),
+            (1.0, 0),
+            (1.5, None),
+            (2.0, 1),
+            (3.0, 2),
+            (3.5, None),
+        ],
     )
-    def test_cue_slot_boundaries_map_consistently(self, context_key, expected_slot):
+    def test_cue_slot_ids_map_consistently(self, context_key, expected_slot):
         ctrl = SelectiveMemoryController()
         assert ctrl._cue_slot_index(context_key) == expected_slot
 
