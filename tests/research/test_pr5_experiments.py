@@ -275,6 +275,23 @@ class TestExpSelectorStressV2:
     def test_collapse_distances(self, results):
         assert "collapse_distances" in results
 
+    def test_collapse_distance_formula_matches_selector(self):
+        from flygym_research.cognition.experiments.exp_selector_stress_v2 import (
+            _collapse_distance,
+        )
+
+        item = {
+            "seam_risk": 0.2,
+            "scale_drift": 0.1,
+            "degeneracy_penalty": 0.3,
+            "interop_loss": 0.4,
+        }
+        expected = float(
+            np.clip(1.2 - 0.9 * 0.2 - 0.7 * 0.1 - 0.9 * 0.3 - 0.5 * 0.4, 0.0, 1.0)
+        )
+
+        assert _collapse_distance(item) == pytest.approx(expected)
+
 
 # ---------------------------------------------------------------------------
 # EXP 7: Observer-Family Benchmark v2

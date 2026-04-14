@@ -113,6 +113,17 @@ def _survival_selector(
     return sorted(survivors, key=lambda x: -x.get("survival_score", 0.0))[:top_k]
 
 
+def _collapse_distance(item: dict) -> float:
+    return float(np.clip(
+        1.2
+        - 0.9 * item["seam_risk"]
+        - 0.7 * item["scale_drift"]
+        - 0.9 * item["degeneracy_penalty"]
+        - 0.5 * item["interop_loss"],
+        0.0, 1.0,
+    ))
+
+
 def _basin_collapse_selector(
     pool: list[dict],
     *,
@@ -129,14 +140,7 @@ def _basin_collapse_selector(
         basin_size = float(
             seam_margin + interop_margin + drift_margin + 0.5 * item["portability_fraction"]
         )
-        collapse_distance = float(np.clip(
-            1.2
-            - 0.9 * item["seam_risk"]
-            - 0.7 * item["scale_drift"]
-            - 0.9 * item["degeneracy_penalty"]
-            - 0.5 * item["interop_loss"],
-            0.0, 1.0,
-        ))
+        collapse_distance = _collapse_distance(item)
         item["basin_score"] = (
             basin_size
             + lambda_collapse * collapse_distance
@@ -274,10 +278,7 @@ def run_experiment(
         "collapse_distances": [
             {
                 "candidate_id": item["candidate_id"],
-                "collapse_distance": float(np.clip(
-                    1.0 - item["seam_risk"] - item["scale_drift"] - item["degeneracy_penalty"],
-                    0.0, 1.0,
-                )),
+                "collapse_distance": _collapse_distance(item),
                 "is_dangerous": _is_dangerous(item),
                 "family": family_labels.get(item["candidate_id"], "unknown"),
             }
