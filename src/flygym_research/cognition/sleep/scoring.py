@@ -60,8 +60,7 @@ def _normalize_degeneracy_penalty(
     success_floor = max(mean_success, 0.3)
     raw_penalty = float(np.clip(q_red * (1.0 - success_floor), 0.0, 1.0))
     dispersion = float(np.std([degeneracy_ratio, information_loss, q_red]))
-    centered = raw_penalty - 0.25 * (q_red - 0.5)
-    return float(np.clip(centered + 0.2 * dispersion, 0.0, 1.0))
+    return float(np.clip(raw_penalty + 0.2 * dispersion, 0.0, 1.0))
 
 
 def backbone_shared_score(
