@@ -24,6 +24,12 @@ from ..research.long_horizon_runner import collect_long_horizon
 from ..sleep import backbone_shared_score, safe_compression_score
 from ..sleep.trace_schema import SleepCandidate, TraceEpisode
 
+_COLLAPSE_BASE = 1.2
+_SEAM_RISK_WEIGHT = 0.9
+_SCALE_DRIFT_WEIGHT = 0.7
+_DEGENERACY_WEIGHT = 0.9
+_INTEROP_LOSS_WEIGHT = 0.5
+
 
 # ---------------------------------------------------------------------------
 # Candidate pool with rich scoring
@@ -115,11 +121,11 @@ def _survival_selector(
 
 def _collapse_distance(item: dict) -> float:
     return float(np.clip(
-        1.2
-        - 0.9 * item["seam_risk"]
-        - 0.7 * item["scale_drift"]
-        - 0.9 * item["degeneracy_penalty"]
-        - 0.5 * item["interop_loss"],
+        _COLLAPSE_BASE
+        - _SEAM_RISK_WEIGHT * item["seam_risk"]
+        - _SCALE_DRIFT_WEIGHT * item["scale_drift"]
+        - _DEGENERACY_WEIGHT * item["degeneracy_penalty"]
+        - _INTEROP_LOSS_WEIGHT * item["interop_loss"],
         0.0, 1.0,
     ))
 

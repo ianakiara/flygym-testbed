@@ -6,6 +6,8 @@ import numpy as np
 
 from ..interfaces import BrainInterface, BrainObservation, DescendingCommand
 
+_CUE_SLOT_TOLERANCE = 1e-8
+
 
 @dataclass(slots=True)
 class SelectiveMemoryController(BrainInterface):
@@ -174,7 +176,7 @@ class SelectiveMemoryController(BrainInterface):
 
     def _cue_slot_index(self, slot_id: float) -> int | None:
         cue_id = int(np.rint(slot_id))
-        if not np.isclose(slot_id, cue_id, rtol=0.0, atol=1e-8):
+        if not np.isclose(slot_id, cue_id, rtol=0.0, atol=_CUE_SLOT_TOLERANCE):
             return None
         slot_index = cue_id - 1
         if 0 <= slot_index < min(3, self.memory_slots):
