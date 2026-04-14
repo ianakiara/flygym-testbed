@@ -115,10 +115,9 @@ class SelectiveMemoryController(BrainInterface):
 
         # One-hot slot identity
         slot_oh = np.zeros(3, dtype=np.float64)
-        if 0.5 <= slot_id <= 3.5:
-            idx = round(slot_id) - 1
-            if 0 <= idx < 3:
-                slot_oh[idx] = 1.0
+        slot_index = self._cue_slot_index(slot_id)
+        if slot_index is not None:
+            slot_oh[slot_index] = 1.0
 
         # Cue value dims: store during write phase, zeros during query phase
         if is_query_mode:
@@ -173,6 +172,14 @@ class SelectiveMemoryController(BrainInterface):
         attention = weights / total
         return attention @ self._slots, attention
 
+    def _cue_slot_index(self, slot_id: float) -> int | None:
+        if not (0.5 <= slot_id <= 3.5):
+            return None
+        slot_index = min(int(slot_id + 0.5), 3) - 1
+        if 0 <= slot_index < min(3, self.memory_slots):
+            return slot_index
+        return None
+
     def _write(
         self, query: np.ndarray, observation: BrainObservation, attention: np.ndarray
     ) -> None:
@@ -194,13 +201,11 @@ class SelectiveMemoryController(BrainInterface):
         distractor_flag = float(observation.world.info.get("distractor_active", False))
         slot_id = abs(context_key)
 
-        if 0.5 <= slot_id <= 3.5:
+        slot_index = self._cue_slot_index(slot_id)
+        if slot_index is not None:
             # Known cue slot — hard write, no global strength decay.
             # Using a direct overwrite preserves the full cue value; gate-based
             # averaging would scale cue_dims to (1-decay^N)×cue, losing amplitude.
-            slot_index = round(slot_id) - 1
-            if not (0 <= slot_index < self.memory_slots):
-                return
             self._slots[slot_index] = query.copy()
             self._strengths[slot_index] = 1.0
         elif not distractor_flag:

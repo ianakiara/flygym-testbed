@@ -432,6 +432,14 @@ class TestSelectiveMemoryController:
         assert state["step_count"] == 1.0
         assert state["active_slots"] >= 1.0
 
+    @pytest.mark.parametrize(
+        ("context_key", "expected_slot"),
+        [(0.5, 0), (1.0, 0), (1.5, 1), (2.5, 2), (3.5, 2)],
+    )
+    def test_cue_slot_boundaries_map_consistently(self, context_key, expected_slot):
+        ctrl = SelectiveMemoryController()
+        assert ctrl._cue_slot_index(context_key) == expected_slot
+
     def test_neutral_writes_do_not_corrupt_cue_slots(self):
         env = FlyAvatarEnv(body=BodylessBodyLayer())
         ctrl = SelectiveMemoryController()
