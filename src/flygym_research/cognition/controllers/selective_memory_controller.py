@@ -205,7 +205,10 @@ class SelectiveMemoryController(BrainInterface):
             self._strengths[slot_index] = 1.0
         elif not distractor_flag:
             # Untagged non-distractor step: lightweight leaky write to spare slot
-            slot_index = int(np.argmin(self._strengths))
+            spare_start = min(3, self.memory_slots)
+            if spare_start >= self.memory_slots:
+                return
+            slot_index = spare_start + int(np.argmin(self._strengths[spare_start:]))
             self._slots[slot_index] = (
                 self.gate_decay * self._slots[slot_index]
                 + (1.0 - self.gate_decay) * query
