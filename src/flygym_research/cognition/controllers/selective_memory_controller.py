@@ -178,10 +178,9 @@ class SelectiveMemoryController(BrainInterface):
         cue_id = int(np.rint(slot_id))
         if not np.isclose(slot_id, cue_id, rtol=0.0, atol=_CUE_SLOT_TOLERANCE):
             return None
-        slot_index = cue_id - 1
-        if 0 <= slot_index < min(3, self.memory_slots):
-            return slot_index
-        return None
+        if not (1 <= cue_id <= min(3, self.memory_slots)):
+            return None
+        return cue_id - 1
 
     def _write(
         self, query: np.ndarray, observation: BrainObservation, attention: np.ndarray
